@@ -311,6 +311,13 @@
     };
   }
 
+  // ルート上の今いる地点から、少し先（既定30m）を見た向き。止まっていても「進む方向」が分かる
+  function headingAhead(route, along, ahead) {
+    var a = pointAt(route, along).p, b = pointAt(route, Math.min(route.total, along + (ahead || 30))).p;
+    if (dist(a, b) < 3) return pointAt(route, along).heading;
+    return bearing(a, b);
+  }
+
   // 次に案内する曲がり角（通過直後の数mは通過済み扱い）
   function nextGuide(route, along) {
     for (var i = 0; i < route.guides.length; i++) {
@@ -478,7 +485,7 @@
   }
 
   var api = {
-    makeTrafficWatcher: makeTrafficWatcher, describe: describe, exitLabel: exitLabel, speechPhrase: speechPhrase, currentRoad: currentRoad, bannerParts: bannerParts, refLabel: refLabel,
+    makeTrafficWatcher: makeTrafficWatcher, describe: describe, headingAhead: headingAhead, exitLabel: exitLabel, speechPhrase: speechPhrase, currentRoad: currentRoad, bannerParts: bannerParts, refLabel: refLabel,
     dist: dist, bearing: bearing, angleDiff: angleDiff, projectOnSegment: projectOnSegment,
     phrase: phrase, roadLabel: roadLabel, formatDistance: formatDistance,
     speechDistance: speechDistance, formatDuration: formatDuration,

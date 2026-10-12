@@ -476,7 +476,7 @@ body[data-profile="foot"] .arrive-flag { background: #1f9d6b; }
 <script>
 (function () {
   'use strict';
-  var APP_VERSION = '1.5.1', APP_DATE = '2026-10-12';
+  var APP_VERSION = '1.5.2', APP_DATE = '2026-10-12';
   var N = window.NavCore;
   var $ = function (id) { return document.getElementById(id); };
 
@@ -590,7 +590,7 @@ body[data-profile="foot"] .arrive-flag { background: #1f9d6b; }
     S.follow = false;
     $('recenter').hidden = false;
     clearTimeout(S.followTimer);
-    if (S.mode === 'nav') S.followTimer = setTimeout(resumeFollow, 12000);
+    if (S.mode === 'nav') S.followTimer = setTimeout(resumeFollow, 8000); // 案内中は8秒で自動的に現在地へ戻る
   }
   function resumeFollow() {
     S.follow = true;
@@ -634,7 +634,8 @@ body[data-profile="foot"] .arrive-flag { background: #1f9d6b; }
       M.dispAlong = Math.min(S.route.total, M.fixAlong + M.fixV * dt);
       var pa = N.pointAt(S.route, M.dispAlong);
       target = pa.p;
-      if (M.fixV > 1.5 || (S.profile === 'foot' && M.fixV > 0.5)) th = pa.heading;
+      // 案内中はルートの「これから進む向き」を使う（止まっていても、出発前でもルートの方向を上にする）
+      th = N.headingAhead(S.route, M.dispAlong, S.profile === 'foot' ? 15 : 30);
     } else {
       M.dispAlong = null;
       target = M.fixV > 1.5 ? offsetPoint(M.fixP, M.fixV * dt, M.fixH) : M.fixP;
@@ -646,7 +647,7 @@ body[data-profile="foot"] .arrive-flag { background: #1f9d6b; }
     }
     var foot = S.profile === 'foot';
     if (foot && S.compass !== null && Date.now() - S.compassT < 2000) M.h = lerpAngle(M.h, S.compass, 1 - Math.exp(-fdt / 0.3)); // 徒歩はコンパスの向き
-    else if (M.fixV > (foot ? 0.6 : 1.5)) M.h = lerpAngle(M.h, th, 1 - Math.exp(-fdt / 0.45)); // 止まっている間は向きを変えない
+    else if (M.dispAlong !== null || M.fixV > (foot ? 0.6 : 1.5)) M.h = lerpAngle(M.h, th, 1 - Math.exp(-fdt / 0.45)); // 案内中はルートの向き。案内していないときは、止まっている間は向きを変えない
     car.setLngLat(M.p).setRotation(M.h);
 
     if (M.dispAlong !== null && now - M.lastRouteDraw > 250) { M.lastRouteDraw = now; drawRemaining(M.dispAlong); }
@@ -1103,7 +1104,8 @@ body[data-profile="foot"] .arrive-flag { background: #1f9d6b; }
     var u = N.update(S.route, S.pos, S.speed); // 開始の読み上げと重ならないよう、ここでは読み上げない
     S.lastUpdate = u;
     renderBanner(u); renderRemain(u);
-    M.fixAlong = u.along; M.fixP = N.pointAt(S.route, u.along).p; M.fixT = performance.now();
+    M.fixAlong = u.dev < 25 ? u.along : null; M.fixP = N.pointAt(S.route, u.along).p; M.fixT = performance.now();
+    M.h = N.headingAhead(S.route, u.along, S.profile === 'foot' ? 15 : 30); // 案内開始の瞬間からルートの向きを上に
     M.snapCamera = true;
     saveActive();
     saveRouteMap(S.raw.routes[0].geometry.coordinates);
@@ -1160,6 +1162,7 @@ body[data-profile="foot"] .arrive-flag { background: #1f9d6b; }
     saveActive();
     drawRoute(raw);
     M.fixAlong = null;
+    if (S.pos) { var u0 = N.update(S.route, S.pos, S.speed); if (u0.dev < 25) M.fixAlong = u0.along; }
     if (S.sim) S.sim.along = 0; // 模擬走行は新しいルートの始点から
   }
 
