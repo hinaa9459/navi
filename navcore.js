@@ -60,8 +60,16 @@
     'uturn':        { turn: 'Uターン',  side: 'Uターン' }
   };
 
+  // 歩行者向けの言い方（「右折」ではなく「右方向」）
+  var DIR_FOOT = {
+    'right': { turn: '右方向', side: '右' }, 'slight right': { turn: '斜め右方向', side: '右' }, 'sharp right': { turn: '大きく右方向', side: '右' },
+    'left': { turn: '左方向', side: '左' }, 'slight left': { turn: '斜め左方向', side: '左' }, 'sharp left': { turn: '大きく左方向', side: '左' },
+    'straight': { turn: '直進', side: '直進' }, 'uturn': { turn: '引き返す方向', side: '引き返す' }
+  };
+
   function dirOf(step) {
-    return DIR[(step.maneuver && step.maneuver.modifier) || 'straight'] || DIR.straight;
+    var table = step.foot ? DIR_FOOT : DIR;
+    return table[(step.maneuver && step.maneuver.modifier) || 'straight'] || table.straight;
   }
 
   // 方面（出口・入口の行き先）
@@ -135,8 +143,9 @@
     return Math.round(m / 1000) + ' km';
   }
 
-  // 読み上げ用 "300メートル" / "1.5キロ"
-  function speechDistance(m) {
+  // 読み上げ用 "300メートル" / "1.5キロ"（徒歩は "50メートル" まで細かく）
+  function speechDistance(m, foot) {
+    if (foot && m < 100) return Math.max(10, Math.round(m / 10) * 10) + 'メートル';
     if (m < 300) return Math.max(100, Math.round(m / 50) * 50) + 'メートル';
     if (m < 950) return Math.round(m / 100) * 100 + 'メートル';
     var km = Math.round(m / 500) / 2;
@@ -163,6 +172,7 @@
   // OSRMの返答を、走行中に使いやすい形に変換
   function prepareRoute(osrm) {
     var r = osrm.routes[0];
+    var foot = !!(osrm.meta && osrm.meta.profile === 'foot');
     var coords = r.geometry.coordinates;
     var cum = [0];
     for (var i = 1; i < coords.length; i++) cum[i] = cum[i - 1] + dist(coords[i - 1], coords[i]);
@@ -179,6 +189,7 @@
       k = best;
       steps[s].at = cum[best];          // ルート始点からこの曲がり角までの距離
       steps[s].index = s;
+      if (foot) steps[s].foot = true;
     }
     // 高速の入口に名前が無いときは、入った先の道路名を表示する
     for (s = 0; s + 1 < steps.length; s++) {
@@ -191,7 +202,7 @@
     }
     return {
       coords: coords, cum: cum, steps: steps, guides: guides,
-      total: cum[cum.length - 1], duration: r.duration, distance: r.distance,
+      total: cum[cum.length - 1], duration: r.duration, distance: r.distance, foot: foot,
       seg: 0, spoken: {}, lastGuide: -1
     };
   }
@@ -272,8 +283,10 @@
       speak: null, arrived: false
     };
 
+    var foot = !!route.foot;
+    var arriveDist = foot ? 15 : 30;
     // 到着
-    if (remaining < 30 || (g.maneuver.type === 'arrive' && toNext < 30)) {
+    if (remaining < arriveDist || (g.maneuver.type === 'arrive' && toNext < arriveDist)) {
       out.arrived = true;
       return out;
     }
@@ -281,17 +294,20 @@
     var said = route.spoken[gi] || (route.spoken[gi] = { tiers: {}, lastAt: null, soon: false });
     var prevAt = gi > 0 ? route.guides[gi - 1].at : 0;
     var legLen = g.at - prevAt;
-    var highway = v > 22; // 約80km/h超
-    var tiers = highway ? [2000, 1000, 500] : [700, 300];
-    var soonDist = Math.max(50, Math.min(160, v * 7)); // 約7秒手前で「まもなく」
+    var highway = !foot && v > 22; // 約80km/h超
+    var tiers = foot ? [100, 40] : highway ? [2000, 1000, 500] : [700, 300];
+    var soonDist = foot ? 12 : Math.max(50, Math.min(160, v * 7)); // 車は約7秒手前、徒歩は12m手前で「まもなく」
+    var quiet = foot ? 25 : 150;      // 直前の読み上げからこの距離は黙る
+    var straightLong = foot ? 400 : 2500;
+    var chainGap = foot ? 30 : 120;
     var text = speechPhrase(g);
 
     // 曲がり角を通過した直後：次が遠ければ「しばらく道なり」
     if (route.lastGuide !== gi) {
       var first = route.lastGuide === -1;
       route.lastGuide = gi;
-      if (!first && toNext > 2500) {
-        out.speak = 'この先、しばらく道なりです';
+      if (!first && toNext > straightLong) {
+        out.speak = foot ? 'この先、しばらく直進です' : 'この先、しばらく道なりです';
         said.lastAt = along;
         return out;
       }
@@ -301,7 +317,7 @@
     if (!said.soon && toNext <= soonDist) {
       said.soon = true;
       var then = route.guides[gi + 1];
-      var chain = then && then.at - g.at < 120 ? '。その先、' + speechPhrase(then) : '';
+      var chain = then && then.at - g.at < chainGap ? '。その先、' + speechPhrase(then) : '';
       out.speak = 'まもなく、' + text + chain;
       said.lastAt = along;
       return out;
@@ -311,11 +327,11 @@
     for (var i = tiers.length - 1; i >= 0; i--) {
       var T = tiers[i];
       if (said.tiers[T]) continue;
-      if (toNext <= T && toNext > soonDist + 60) {
+      if (toNext <= T && toNext > soonDist + (foot ? 10 : 60)) {
         for (var k = 0; k < tiers.length; k++) if (tiers[k] >= T) said.tiers[tiers[k]] = true;
-        var recent = said.lastAt !== null && along - said.lastAt < 150;
+        var recent = said.lastAt !== null && along - said.lastAt < quiet;
         if (!recent && legLen > Math.min(T * 0.5, 250)) {
-          out.speak = speechDistance(toNext) + '先、' + text;
+          out.speak = speechDistance(toNext, foot) + '先、' + text;
           said.lastAt = along;
         }
         break;
@@ -327,21 +343,23 @@
   // 案内開始時のひとこと
   function startMessage(route) {
     var ng = nextGuide(route, 0), g = ng.guide;
-    var head = 'ルート案内を開始します。所要時間は約' + formatDuration(route.duration) + 'です。';
+    var head = route.foot ? '徒歩の案内を開始します。約' + formatDuration(route.duration) + 'です。'
+      : 'ルート案内を開始します。所要時間は約' + formatDuration(route.duration) + 'です。';
     if (g.maneuver.type === 'arrive') return head;
-    if (g.at > 2500) return head + 'しばらく道なりです';
-    return head + speechDistance(g.at) + '先、' + speechPhrase(g);
+    if (g.at > (route.foot ? 400 : 2500)) return head + (route.foot ? 'しばらく直進です' : 'しばらく道なりです');
+    return head + speechDistance(g.at, route.foot) + '先、' + speechPhrase(g);
   }
 
   // ---------- ルート外れの判定 ----------
   // 連続して大きく外れたら true
-  function makeOffRouteDetector() {
+  // foot = true のときは徒歩用（GPSの誤差が相対的に大きいので、ゆっくり判定）
+  function makeOffRouteDetector(foot) {
     var count = 0;
     return function (dev, accuracy, speedMs) {
-      var limit = Math.max(45, (accuracy || 0) * 1.3);
-      if (dev > limit && (speedMs || 0) > 1) count++;
+      var limit = foot ? Math.max(30, (accuracy || 0) * 1.5) : Math.max(45, (accuracy || 0) * 1.3);
+      if (dev > limit && (speedMs || 0) > (foot ? 0.3 : 1)) count++;
       else count = 0;
-      if (count >= 3) { count = 0; return true; }
+      if (count >= (foot ? 4 : 3)) { count = 0; return true; }
       return false;
     };
   }

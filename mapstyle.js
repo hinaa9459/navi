@@ -1,7 +1,7 @@
 /*
  * mapstyle.js — カーナビ風の地図の見た目
  * OpenStreetMapのベクトル地図（OpenFreeMap・無料・登録不要）を、次の方針で描きます。
- *   - 建物は薄く、道路をはっきり（道路の種類で色分け：高速=緑、国道=オレンジ、県道=黄、その他=白）
+ *   - 建物は薄く形だけ（建物は国土地理院のデータで全国を補う）、道路をはっきり（道路の種類で色分け：高速=緑、国道=オレンジ、県道=黄、その他=白）
  *   - 道路名・施設名・信号機（交差点）名を控えめに表示
  *   - 昼／夜の2つの配色（夜は暗い地図）
  * 地図が読めないときは、国土地理院の淡色地図に切り替えます。
@@ -11,7 +11,7 @@
 
   var PALETTE = {
     day: {
-      bg: '#f3f2ee', park: '#dcebd2', water: '#aed0ec', building: '#e7e4df', buildingLine: '#dbd7d0', rail: '#b9b6b0',
+      bg: '#f3f2ee', park: '#dcebd2', water: '#aed0ec', building: '#e4e0d9', buildingLine: '#cfc9c0', rail: '#b9b6b0', path: '#b8b2a8',
       minor: '#ffffff', minorCase: '#d6d1c9', tertiary: '#ffffff', tertiaryCase: '#b9b3a9',
       secondary: '#fbe08a', secondaryCase: '#d1af4c', primary: '#f6ad6a', primaryCase: '#d0803e',
       motorway: '#5dbb7c', motorwayCase: '#2f8550',
@@ -19,7 +19,7 @@
       roadText: '#2f343a', poiText: '#6a6f77', poiDot: '#9aa0a8', signalText: '#123d8f', place: '#4a4f57', halo: '#ffffff'
     },
     night: {
-      bg: '#151a21', park: '#1b2620', water: '#1c3448', building: '#1f252d', buildingLine: '#262d36', rail: '#3a404a',
+      bg: '#151a21', park: '#1b2620', water: '#1c3448', building: '#222932', buildingLine: '#2e3640', rail: '#3a404a', path: '#56606c',
       minor: '#363d48', minorCase: '#22272f', tertiary: '#48505c', tertiaryCase: '#282d35',
       secondary: '#857235', secondaryCase: '#4f4420', primary: '#a5672f', primaryCase: '#5f3c1d',
       motorway: '#2e7a4e', motorwayCase: '#1a4a2f',
@@ -65,17 +65,24 @@
       paint: { 'fill-color': p[bind('water', 'fill-color', 'water')] } });
     L.push({ id: 'waterway', type: 'line', source: 'omt', 'source-layer': 'waterway', minzoom: 12,
       paint: { 'line-color': p[bind('waterway', 'line-color', 'water')], 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 0.8, 18, 4] } });
-    // 建物：薄く、ズームしたときだけ見える
-    L.push({ id: 'building', type: 'fill', source: 'omt', 'source-layer': 'building', minzoom: 14,
-      paint: {
-        'fill-color': p[bind('building', 'fill-color', 'building')],
-        'fill-outline-color': p[bind('building', 'fill-outline-color', 'buildingLine')],
-        'fill-opacity': ['interpolate', ['linear'], ['zoom'], 14, 0, 15, 0.6, 17, 0.9]
-      } });
+    // 建物：薄く、ズームしたときだけ見える（OpenStreetMap＋国土地理院。地理院は全国の建物がそろっている）
+    [['building', 'omt', 'building'], ['building-gsi', 'gsiv', 'BldA']].forEach(function (b) {
+      L.push({ id: b[0], type: 'fill', source: b[1], 'source-layer': b[2], minzoom: 14,
+        paint: {
+          'fill-color': p[bind(b[0], 'fill-color', 'building')],
+          'fill-outline-color': p[bind(b[0], 'fill-outline-color', 'buildingLine')],
+          'fill-opacity': ['interpolate', ['linear'], ['zoom'], 14, 0.3, 15.5, 0.8, 17, 1]
+        } });
+    });
     L.push({ id: 'rail', type: 'line', source: 'omt', 'source-layer': 'transportation', minzoom: 11,
       filter: ['all', ['==', ['get', 'class'], 'rail'], ['!=', ['get', 'brunnel'], 'tunnel']],
       paint: { 'line-color': p[bind('rail', 'line-color', 'rail')], 'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.8, 18, 3], 'line-dasharray': [3, 2] } });
 
+    // 歩道・小道（歩行モードのときだけ表示）
+    L.push({ id: 'road-path', type: 'line', source: 'omt', 'source-layer': 'transportation', minzoom: 14.5,
+      filter: ['match', ['get', 'class'], ['path', 'track'], true, false],
+      layout: { 'line-cap': 'round', 'line-join': 'round', visibility: 'none' },
+      paint: { 'line-color': p[bind('road-path', 'line-color', 'path')], 'line-width': ['interpolate', ['linear'], ['zoom'], 15, 1, 18, 3], 'line-dasharray': [2, 1.5] } });
     // 道路：ふち → 中身 の順に描く
     var tunnelOpacity = ['case', ['==', ['get', 'brunnel'], 'tunnel'], 0.45, 1];
     ROADS.forEach(function (r) {
@@ -155,6 +162,9 @@
       route: { type: 'geojson', data: EMPTY, attribution: 'ルート: Valhalla・OSRM' },
       signals: { type: 'geojson', data: EMPTY }
     };
+    if (vector) s.gsiv = { type: 'vector', minzoom: 14, maxzoom: 16,
+      tiles: ['https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/{z}/{x}/{y}.pbf'],
+      attribution: '建物：<a href="https://maps.gsi.go.jp/development/vt.html" target="_blank" rel="noopener">国土地理院</a>' };
     if (vector) s.omt = { type: 'vector', url: 'https://tiles.openfreemap.org/planet',
       attribution: '<a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>' };
     else s.gsi = { type: 'raster', tileSize: 256, minzoom: 2, maxzoom: 18,
@@ -192,6 +202,18 @@
     }
   }
 
+  // 車／徒歩で地図の見せ方を変える（徒歩は歩道を表示し、ルートを点線に）
+  function setProfile(map, foot) {
+    if (map.getLayer('road-path')) map.setLayoutProperty('road-path', 'visibility', foot ? 'visible' : 'none');
+    if (map.getLayer('route-line')) {
+      map.setPaintProperty('route-line', 'line-dasharray', foot ? [0.01, 1.8] : [1, 0]);
+      map.setPaintProperty('route-line', 'line-width', foot
+        ? ['interpolate', ['exponential', 1.5], ['zoom'], 12, 5, 16, 9, 19, 16]
+        : ['interpolate', ['exponential', 1.5], ['zoom'], 10, 5, 14, 9, 18, 20]);
+    }
+    if (map.getLayer('route-case')) map.setLayoutProperty('route-case', 'visibility', foot ? 'none' : 'visible');
+  }
+
   // 横型信号機のアイコン（青・黄・赤）
   function signalImage() {
     var w = 64, h = 30, c = document.createElement('canvas');
@@ -213,5 +235,5 @@
     return { width: w, height: h, data: new Uint8Array(g.getImageData(0, 0, w, h).data.buffer) };
   }
 
-  root.MapStyle = { build: build, buildFallback: buildFallback, applyTheme: applyTheme, signalImage: signalImage, EMPTY: EMPTY };
+  root.MapStyle = { build: build, buildFallback: buildFallback, applyTheme: applyTheme, setProfile: setProfile, signalImage: signalImage, EMPTY: EMPTY };
 })(this);

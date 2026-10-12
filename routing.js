@@ -1,8 +1,8 @@
 /*
  * routing.js — ルート計算の窓口
- * 2つの無料ルートサービスを順番に試し、答えた方を使います。
- *   1. Valhalla（無料・登録不要）… 有料道路の回避・指定地点の回避（渋滞よけ）に対応
- *   2. OSRM（無料・登録不要）… 予備
+ * 無料のルートサービスを順番に試し、最初に答えたものを使います。
+ *   1. Valhalla（無料・登録不要）… 車・徒歩。有料道路の回避・指定地点の回避（渋滞よけ）に対応
+ *   2. OSRM（無料・登録不要）… 予備。車は2か所、徒歩は1か所のサーバー
  * どのサービスの答えも、navcore.js が読める同じ形（OSRM形式）にそろえて返します。
  */
 (function (root) {
@@ -78,12 +78,13 @@
   function valhalla(from, to, o) {
     var start = { lat: from[1], lon: from[0] };
     if (o.heading != null) { start.heading = Math.round(o.heading) % 360; start.heading_tolerance = 60; }
+    var foot = o.profile === 'foot';
     var req = {
       locations: [start, { lat: to[1], lon: to[0] }],
-      costing: 'auto',
-      costing_options: { auto: { use_tolls: o.avoidTolls ? 0 : 0.5 } },
+      costing: foot ? 'pedestrian' : 'auto',
       language: 'ja-JP', units: 'kilometers'
     };
+    if (!foot) req.costing_options = { auto: { use_tolls: o.avoidTolls ? 0 : 0.5 } };
     // 渋滞している区間など、通りたくない地点（その付近の道路を避ける）
     if (o.avoidPoints && o.avoidPoints.length) {
       req.exclude_locations = o.avoidPoints.map(function (p) { return { lat: p[1], lon: p[0] }; });
@@ -143,40 +144,49 @@
     });
     var sum = j.trip.summary;
     return osrmShape(coords, sum.length * 1000, sum.time, steps, {
-      provider: 'valhalla', label: '無料サーバー（Valhalla）', traffic: false,
-      staticDuration: sum.time, hasToll: !!sum.has_toll, avoidTolls: !!o.avoidTolls
+      provider: 'valhalla', label: '無料サーバー（Valhalla）', traffic: false, profile: o.profile === 'foot' ? 'foot' : 'car',
+      staticDuration: sum.time, hasToll: o.profile === 'foot' ? null : !!sum.has_toll, avoidTolls: !!o.avoidTolls
     });
   }
 
   // ---------- 2. OSRM（予備） ----------
-  function osrm(from, to, o) {
-    var url = 'https://router.project-osrm.org/route/v1/driving/' +
-      from[0].toFixed(6) + ',' + from[1].toFixed(6) + ';' + to[0].toFixed(6) + ',' + to[1].toFixed(6) +
-      '?overview=full&geometries=geojson&steps=true';
-    if (o.heading != null) url += '&bearings=' + (Math.round(o.heading) % 360) + ',60;&radiuses=60;unlimited';
-    return request(url, {}, 'osrm').then(function (r) {
-      var j = r.json;
-      if (j && j.code === 'Ok' && j.routes && j.routes.length) {
-        j.meta = { provider: 'osrm', label: '予備サーバー（OSRM）', traffic: false, staticDuration: j.routes[0].duration, hasToll: null, avoidTolls: false };
-        return j;
-      }
-      if (o.heading != null) { var o2 = {}; for (var k in o) o2[k] = o[k]; o2.heading = null; return osrm(from, to, o2); }
-      throw RouteError(j && j.code === 'NoRoute' ? '車で行けるルートが見つかりません' : '予備サーバー（OSRM）でもルートを計算できません',
-        'osrm', j && j.code === 'NoRoute' ? 'noroute' : 'error');
-    });
+  var OSRM_SERVERS = {
+    car: [['https://router.project-osrm.org/route/v1/driving/', '予備サーバー（OSRM）'],
+          ['https://routing.openstreetmap.de/routed-car/route/v1/driving/', '予備サーバー2（FOSSGIS）']],
+    foot: [['https://routing.openstreetmap.de/routed-foot/route/v1/driving/', '予備サーバー（FOSSGIS 徒歩）']]
+  };
+
+  function makeOsrm(base, label, profile) {
+    function call(from, to, o) {
+      var url = base + from[0].toFixed(6) + ',' + from[1].toFixed(6) + ';' + to[0].toFixed(6) + ',' + to[1].toFixed(6) +
+        '?overview=full&geometries=geojson&steps=true';
+      if (o.heading != null) url += '&bearings=' + (Math.round(o.heading) % 360) + ',60;&radiuses=60;unlimited';
+      return request(url, {}, 'osrm').then(function (r) {
+        var j = r.json;
+        if (j && j.code === 'Ok' && j.routes && j.routes.length) {
+          j.meta = { provider: 'osrm', label: label, traffic: false, profile: profile, staticDuration: j.routes[0].duration, hasToll: null, avoidTolls: false };
+          return j;
+        }
+        if (o.heading != null) { var o2 = {}; for (var k in o) o2[k] = o[k]; o2.heading = null; return call(from, to, o2); }
+        throw RouteError(j && j.code === 'NoRoute' ? 'ルートが見つかりません' : label + 'でもルートを計算できません',
+          'osrm', j && j.code === 'NoRoute' ? 'noroute' : 'error');
+      });
+    }
+    return call;
   }
 
   // ---------- 窓口 ----------
-  // o = { avoidTolls, heading, avoidPoints }
+  // o = { profile: 'car' | 'foot', avoidTolls, heading, avoidPoints }
   function compute(from, to, o) {
     o = o || {};
-    var chain = [valhalla, osrm];
+    var profile = o.profile === 'foot' ? 'foot' : 'car';
+    var chain = [valhalla].concat(OSRM_SERVERS[profile].map(function (s) { return makeOsrm(s[0], s[1], profile); }));
     var errors = [];
     var i = 0;
     function next() {
       if (i >= chain.length) {
         var nr = errors.filter(function (e) { return e.kind === 'noroute'; }).length;
-        var e = RouteError(nr >= 2 ? '車で行けるルートが見つかりませんでした' :
+        var e = RouteError(nr >= 2 ? (profile === 'foot' ? '歩いて行けるルートが見つかりませんでした' : '車で行けるルートが見つかりませんでした') :
           errors.every(function (x) { return x.kind === 'network'; }) ? 'インターネットに接続できません' :
           'どのルートサーバーも応答しませんでした', 'all', nr >= 2 ? 'noroute' : 'error');
         e.errors = errors;
@@ -186,8 +196,8 @@
       return fn(from, to, o).then(function (res) {
         var warn = [];
         if (o.avoidPoints && o.avoidPoints.length && res.meta.provider === 'osrm') warn.push('予備サーバーは区間の回避に対応していません');
-        if (o.avoidTolls && res.meta.provider === 'osrm') warn.push('予備サーバーは有料道路の回避に対応していません');
-        if (o.avoidTolls && res.meta.hasToll) warn.push('有料道路を通らないルートが見つからず、一部で有料道路を使います');
+        if (profile === 'car' && o.avoidTolls && res.meta.provider === 'osrm') warn.push('予備サーバーは有料道路の回避に対応していません');
+        if (profile === 'car' && o.avoidTolls && res.meta.hasToll) warn.push('有料道路を通らないルートが見つからず、一部で有料道路を使います');
         res.meta.warnings = warn;
         res.meta.failed = errors.map(function (e) { return e.provider; });
         return res;
@@ -199,7 +209,7 @@
     return next();
   }
 
-  var api = { compute: compute, valhalla: valhalla, osrm: osrm, fromValhalla: fromValhalla, decodePolyline: decodePolyline };
+  var api = { compute: compute, valhalla: valhalla, fromValhalla: fromValhalla, decodePolyline: decodePolyline };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Routing = api;
 })(this);
