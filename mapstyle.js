@@ -105,6 +105,9 @@
     var L = [];
     var routeW = ['interpolate', ['exponential', 1.5], ['zoom'], 10, 5, 14, 9, 18, 20];
     var routeCaseW = ['interpolate', ['exponential', 1.5], ['zoom'], 10, 8, 14, 13, 18, 26];
+    // 渋滞時に比べている別ルート（灰色の点線）
+    L.push({ id: 'alt-line', type: 'line', source: 'alt', layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': '#8a94a3', 'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 10, 4, 14, 7, 18, 14], 'line-dasharray': [1.2, 1.2], 'line-opacity': 0.95 } });
     L.push({ id: 'route-case', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: { 'line-color': p[bind('route-case', 'line-color', 'routeCase')], 'line-width': routeCaseW } });
     L.push({ id: 'route-line', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' },
@@ -160,7 +163,8 @@
   function sources(vector) {
     var s = {
       route: { type: 'geojson', data: EMPTY, attribution: 'ルート: Valhalla・OSRM' },
-      signals: { type: 'geojson', data: EMPTY }
+      signals: { type: 'geojson', data: EMPTY },
+      alt: { type: 'geojson', data: EMPTY }
     };
     if (vector) s.gsiv = { type: 'vector', minzoom: 14, maxzoom: 16,
       tiles: ['https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/{z}/{x}/{y}.pbf'],

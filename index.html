@@ -148,6 +148,15 @@ body[data-mode="preview"] .fabs { display: none; }
 .sheet-foot a { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
 .jam-chip { align-self: flex-start; margin-bottom: 10px; padding: 12px 16px; border-radius: 14px; background: var(--danger);
   color: #fff; font-weight: 700; font-size: 16px; box-shadow: 0 4px 14px rgba(0,0,0,.35); }
+.jam-card { margin-bottom: 10px; padding: 14px; border-radius: 16px; background: var(--panel); border: 2px solid var(--danger);
+  box-shadow: 0 6px 20px rgba(0,0,0,.4); display: grid; gap: 6px; }
+.jc-head { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; color: #ff8f8f; }
+.jc-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--danger); }
+.jc-main { font-size: 19px; font-weight: 800; }
+.jc-main b { color: var(--amber); font-family: var(--font-num); font-size: 24px; }
+.jc-sub { font-size: 13px; color: var(--ink-dim); }
+.jam-card .row { margin-top: 4px; }
+.jam-card .btn { height: 50px; }
 .cell.eta.late .label { color: var(--amber); font-weight: 700; }
 
 /* ---------- 検索パネル ---------- */
@@ -244,6 +253,18 @@ body[data-profile="foot"] .mode-btn { color: #4fd39c; border-color: #1f9d6b; }
 .resume-chip { padding: 12px 16px; border-radius: 14px; background: var(--amber); color: var(--amber-ink); font-weight: 700; font-size: 15px;
   box-shadow: 0 4px 14px rgba(0,0,0,.35); text-align: left; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .voice-sel { height: 46px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); padding: 0 12px; font: inherit; font-size: 15px; }
+.fab.traffic { color: #ffb020; }
+.link-btn { font-size: 12px; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; padding: 0; }
+.traffic-sheet { gap: 12px; }
+.tr-head { font-size: 18px; font-weight: 800; }
+.tr-list { display: grid; gap: 8px; }
+.tr-item { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: center; padding: 12px 14px; border-radius: 12px;
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--ink); text-decoration: none; }
+.tr-item .n { font-weight: 700; font-size: 15px; }
+.tr-item .s { grid-column: 1; font-size: 12px; color: var(--ink-dim); line-height: 1.5; }
+.tr-item .go { grid-row: 1 / span 2; grid-column: 2; color: var(--ink-dim); font-size: 18px; }
+.tr-item.main { border-color: #6b4f12; }
+.tr-sec { font-size: 12px; color: var(--ink-dim); letter-spacing: .06em; margin-top: 4px; }
 .sheet.arrive { justify-items: center; text-align: center; gap: 10px; padding-top: 24px; }
 .arrive-flag { width: 56px; height: 56px; border-radius: 50%; background: var(--sign-blue); color: #fff; display: grid; place-items: center; border: 2px solid #fff; }
 .arrive-flag svg { width: 28px; height: 28px; }
@@ -297,6 +318,9 @@ body[data-profile="foot"] .arrive-flag { background: #1f9d6b; }
     <button class="fab recenter" id="recenter" type="button" hidden>
       <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2 20 21 12 16.5 4 21z"/></svg>現在地に戻る
     </button>
+    <button class="fab traffic" id="trafficBtn" type="button" aria-label="交通情報（事故・規制）">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M10.4 3h3.2l.9 3.5h-5zM9 8.5h6l.9 3.5H8.1zM7.6 14h8.8l1 4H6.6zM4 19.5h16v1.5H4z"/></svg>
+    </button>
     <button class="fab orient" id="orientBtn" type="button" aria-label="地図の向き">N</button>
     <button class="fab" id="voiceBtn" type="button" aria-label="音声案内のオン・オフ"></button>
   </div>
@@ -308,6 +332,15 @@ body[data-profile="foot"] .arrive-flag { background: #1f9d6b; }
   </div>
   <button class="sim-chip" id="simChip" type="button" hidden>模擬走行 40 km/h ▸</button>
   <button class="jam-chip" id="jamChip" type="button" hidden>この先の渋滞を避ける</button>
+  <div class="jam-card" id="jamCard" hidden>
+    <div class="jc-head"><span class="jc-dot"></span>渋滞を検知しました</div>
+    <div class="jc-main" id="jcMain"></div>
+    <div class="jc-sub" id="jcSub"></div>
+    <div class="row">
+      <button class="btn primary" id="jcYes" type="button">別ルートにする</button>
+      <button class="btn ghost" id="jcNo" type="button">このまま</button>
+    </div>
+  </div>
   <div class="road-pill" id="roadPill" hidden></div>
 
   <!-- 通常時・案内中の計器 -->
@@ -346,7 +379,7 @@ body[data-profile="foot"] .arrive-flag { background: #1f9d6b; }
     <div class="status" id="sStatus"></div>
     <div class="sheet-foot">
       <span id="sProvider"></span>
-      <a href="https://www.jartic.or.jp/" target="_blank" rel="noopener">いまの渋滞情報（JARTIC）↗</a>
+      <button type="button" class="link-btn" id="trafficLink">事故・規制・渋滞の情報 ›</button>
     </div>
     <div class="row">
       <button class="btn primary" id="goBtn" type="button" disabled>案内開始</button>
@@ -456,6 +489,16 @@ body[data-profile="foot"] .arrive-flag { background: #1f9d6b; }
   </div>
 </div>
 
+<!-- 交通情報（事故・規制） -->
+<div class="modal" id="trafficModal" hidden>
+  <div class="sheet traffic-sheet">
+    <div class="tr-head">事故・車線規制・渋滞の情報</div>
+    <div class="fine" id="trNote"></div>
+    <div class="tr-list" id="trList"></div>
+    <button class="btn ghost" id="trClose" type="button">閉じる</button>
+  </div>
+</div>
+
 <!-- 到着 -->
 <div class="modal" id="arriveModal" hidden>
   <div class="sheet arrive">
@@ -476,7 +519,7 @@ body[data-profile="foot"] .arrive-flag { background: #1f9d6b; }
 <script>
 (function () {
   'use strict';
-  var APP_VERSION = '1.5.2', APP_DATE = '2026-10-12';
+  var APP_VERSION = '1.7.0', APP_DATE = '2026-10-12';
   var N = window.NavCore;
   var $ = function (id) { return document.getElementById(id); };
 
@@ -521,7 +564,7 @@ body[data-profile="foot"] .arrive-flag { background: #1f9d6b; }
     dragRotate: false, pitchWithRotate: false, touchPitch: false, fadeDuration: 0
   });
   map.touchZoomRotate.disableRotation();
-  if (location.hash === '#debug') { window.__map = map; window.__S = S; } // 動作確認用
+  if (location.hash === '#debug') { window.__map = map; window.__S = S; window.__jamCheck = function () { jamCheck(true); }; } // 動作確認用
 
   var carEl = document.createElement('div');
   carEl.className = 'car';
@@ -888,11 +931,8 @@ body[data-profile="foot"] .arrive-flag { background: #1f9d6b; }
       return null;
     }
     if (u.speak) speak(u.speak);
-    if (S.lastTraffic && S.lastTraffic.offerAvoid) {
-      $('jamChip').hidden = false;
-      speak('渋滞しているようです。停車中に、この先を避けるボタンで、別のルートを探せます。');
-    }
-    if (S.lastTraffic && S.lastTraffic.cleared) $('jamChip').hidden = true;
+    if (S.lastTraffic && S.lastTraffic.offerAvoid) jamCheck();
+    if (S.lastTraffic && S.lastTraffic.cleared) { $('jamChip').hidden = true; hideJamCard(); }
     if (!S.sim && S.offDetect(u.dev, acc, S.speed)) reroute({ reason: 'off' });
     return u;
   }
@@ -1075,6 +1115,71 @@ body[data-profile="foot"] .arrive-flag { background: #1f9d6b; }
     setRouteJunctions(null);
   }
 
+  // ---------- 交通情報（事故・規制）：公式の情報源を、ルートに合わせて開く ----------
+  // ※ 事故・車線規制のリアルタイム情報を無料でアプリに取り込める提供元がないため、各公式サイト・アプリを開く方式
+  var ROUTE_PREFS = { key: null, prefs: [], busy: false };
+  function routeKey() { return S.raw ? S.raw.routes[0].distance + ':' + S.raw.routes[0].geometry.coordinates.length : null; }
+  // ルートの高速道路区間が通る都道府県を調べる（最大8地点を国土地理院の住所検索で）
+  function lookupRoutePrefs() {
+    var key = routeKey();
+    if (!key || ROUTE_PREFS.key === key || ROUTE_PREFS.busy || !navigator.onLine) return Promise.resolve();
+    var steps = S.raw.routes[0].legs[0].steps.filter(N.isExpresswayStep);
+    if (!steps.length) { ROUTE_PREFS = { key: key, prefs: [], busy: false }; return Promise.resolve(); }
+    var pick = [], n = Math.min(8, steps.length);
+    for (var i = 0; i < n; i++) pick.push(steps[Math.floor(i * steps.length / n)].maneuver.location);
+    ROUTE_PREFS.busy = true;
+    return Promise.all(pick.map(function (p) {
+      return fetch('https://mreversegeocoder.gsi.go.jp/reverse-geocoder/LonLatToAddress?lat=' + p[1].toFixed(5) + '&lon=' + p[0].toFixed(5))
+        .then(function (r) { return r.json(); }).then(function (j) { return j && j.results ? String(j.results.muniCd).padStart(5, '0').slice(0, 2) : null; })
+        .catch(function () { return null; });
+    })).then(function (codes) {
+      var prefs = [];
+      codes.forEach(function (c) { if (c && prefs.indexOf(c) < 0) prefs.push(c); });
+      ROUTE_PREFS = { key: key, prefs: prefs, busy: false };
+    });
+  }
+  function trafficItem(name, note, url, main) {
+    var a = document.createElement('a');
+    a.className = 'tr-item' + (main ? ' main' : '');
+    a.href = url; a.target = '_blank'; a.rel = 'noopener';
+    var n = document.createElement('span'); n.className = 'n'; n.textContent = name;
+    var s = document.createElement('span'); s.className = 's'; s.textContent = note;
+    var g = document.createElement('span'); g.className = 'go'; g.textContent = '↗';
+    a.appendChild(n); a.appendChild(g); a.appendChild(s);
+    return a;
+  }
+  function renderTraffic() {
+    var list = $('trList'); list.innerHTML = '';
+    var p = S.pos || map.getCenter().toArray();
+    // Googleマップ：目的地があればルート（事故・工事・車線規制の報告つき）、なければ現在地周辺の交通状況
+    var g = S.dest
+      ? 'https://www.google.com/maps/dir/?api=1&destination=' + S.dest.lat.toFixed(6) + '%2C' + S.dest.lon.toFixed(6) + '&travelmode=driving'
+      : 'https://www.google.com/maps/@?api=1&map_action=map&center=' + p[1].toFixed(5) + '%2C' + p[0].toFixed(5) + '&zoom=13&layer=traffic';
+    list.appendChild(trafficItem('Googleマップで見る', (S.dest ? 'この目的地までのルート上の' : '現在地周辺の') + '事故・工事・車線規制（利用者の報告）と渋滞', g, true));
+    list.appendChild(trafficItem('JARTIC 道路交通情報Now!!', '全国の一般道・高速道路の事故・規制・渋滞（公式、5分ごと更新）', 'https://www.jartic.or.jp/', true));
+    list.appendChild(trafficItem('国土交通省 道路情報提供システム', '国道の通行止め・規制・気象（公式）', 'https://www.road-info-prvs.mlit.go.jp/roadinfo/'));
+    var names = S.raw ? S.raw.routes[0].legs[0].steps.map(function (st) { return st.name || ''; }) : [];
+    var cos = N.trafficCompanies(ROUTE_PREFS.key === routeKey() ? ROUTE_PREFS.prefs : [], names);
+    if (cos.length) {
+      var h = document.createElement('div'); h.className = 'tr-sec'; h.textContent = 'このルートの高速道路';
+      list.appendChild(h);
+      cos.forEach(function (c) { list.appendChild(trafficItem(c.name, c.note, c.url)); });
+    }
+    $('trNote').textContent = S.mode === 'nav'
+      ? '別のアプリやページが開きます。開いている間は音声案内が止まり、ミチシルベに戻ると再開します。'
+      : 'ミチシルベの地図には表示できないため、公式の情報を別のページで開きます。';
+  }
+  function openTraffic() {
+    if (S.mode === 'nav' && S.speed > 1.5) { toast('交通情報は停車中に開けます', 2500); speak('交通情報は、停車中に開けます。'); return; }
+    renderTraffic();
+    $('trafficModal').hidden = false;
+    lookupRoutePrefs().then(function () { if (!$('trafficModal').hidden) renderTraffic(); }); // 高速道路会社が分かったら追加
+  }
+  $('trafficBtn').addEventListener('click', openTraffic);
+  $('trafficLink').addEventListener('click', openTraffic);
+  $('trClose').addEventListener('click', function () { $('trafficModal').hidden = true; });
+  $('trafficModal').addEventListener('click', function (e) { if (e.target === $('trafficModal')) $('trafficModal').hidden = true; });
+
   // 到着画面：目的地名・到着時刻・かかった時間・走行距離
   function showArrival() {
     var started = S.navStart || Date.now();
@@ -1170,7 +1275,80 @@ body[data-profile="foot"] .arrive-flag { background: #1f9d6b; }
   function resetTraffic() {
     S.traffic.reset(); S.lastUpdate = null; S.lastTraffic = null;
     $('jamChip').hidden = true;
+    if (typeof hideJamCard === 'function') hideJamCard();
+    S.jamSnoozeUntil = 0;
   }
+
+  // ---------- 渋滞時の別ルート比較 ----------
+  // のろのろ運転を検知したら、この先の区間を避けたルートを裏で探し、時間を比べて早いときだけ勧める
+  var ALT_GEO = EMPTY;
+  function setAltGeo(g) { ALT_GEO = g; var s = map.getSource('alt'); if (s) s.setData(g); }
+  map.on('style.load', function () { var s = map.getSource('alt'); if (s) s.setData(ALT_GEO); });
+
+  function jamAheadPoints() {
+    var a = S.lastUpdate.along;
+    var road = N.currentRoad(S.route, a);
+    var len = /自動車道|高速|首都高|有料/.test(road) ? 3000 : 1650; // 高速道路の渋滞は長いので広めに避ける
+    var end = Math.min(a + len, S.route.total - 300), pts = [];
+    for (var d = a + 150; d <= end; d += 300) pts.push(N.pointAt(S.route, d).p);
+    return pts;
+  }
+
+  function jamCheck(force) {
+    if (!S.route || !S.lastUpdate || !S.dest || !S.pos || S.route.foot) return;
+    if (!force && Date.now() < (S.jamSnoozeUntil || 0)) return;
+    if (!navigator.onLine) return; // 圏外では比べられない（到着予定の補正だけ続ける）
+    if (S.jamChecking) return;
+    var pts = jamAheadPoints();
+    if (!pts.length) return;
+    S.jamChecking = true;
+    var along = S.lastUpdate.along;
+    var curSec = S.lastTraffic ? S.lastTraffic.adjustedSec : S.lastUpdate.remainingSec;
+    var curDist = S.lastUpdate.remaining;
+    computeRoute(S.pos, [S.dest.lon, S.dest.lat], S.heading, (S.avoid || []).concat(pts)).then(function (raw) {
+      if (S.mode !== 'nav') return;
+      var alt = raw.routes[0];
+      var ov = N.routeOverlap(S.route, along, alt.geometry.coordinates);
+      var c = N.compareJam(curSec, alt.duration, ov);
+      if (!c.offer) {
+        if (force) toast(c.reason === 'same' ? '別の道が見つかりませんでした' : 'このままのルートが早い見込みです（別ルートは約' + Math.abs(c.saveMin) + '分' + (c.saveMin < 0 ? '遅い' : '早いだけ') + '）', 4000);
+        else speak('渋滞しています。今のルートのまま進むのが、早い見込みです。');
+        return;
+      }
+      S.jamAlt = { raw: raw, pts: pts };
+      setAltGeo({ type: 'Feature', properties: {}, geometry: alt.geometry });
+      var dd = alt.distance - curDist;
+      $('jcMain').innerHTML = '別ルートが 約<b>' + c.saveMin + '</b>分 早い見込み';
+      $('jcSub').textContent = '渋滞が続いた場合の予測です。距離 ' + (dd >= 0 ? '+' : '−') + N.formatDistance(Math.abs(dd)) +
+        (raw.meta.hasToll && !S.raw.meta.hasToll ? '・有料道路を通ります' : '');
+      $('jamCard').hidden = false;
+      $('jamChip').hidden = true;
+      speak('渋滞しています。別のルートの方が、約' + c.saveMin + '分早く着く見込みです。停車中に、画面で切り替えられます。');
+      clearTimeout(S.jamCardTimer);
+      S.jamCardTimer = setTimeout(hideJamCard, 3 * 60 * 1000); // 3分で自動的に閉じる
+    }).catch(function () {
+      // ルートサーバーにつながらないときは、手動で避けるボタンだけ出す
+      if (S.mode === 'nav') $('jamChip').hidden = false;
+    }).finally(function () { S.jamChecking = false; });
+  }
+  function hideJamCard() {
+    $('jamCard').hidden = true;
+    S.jamAlt = null;
+    setAltGeo(EMPTY);
+    clearTimeout(S.jamCardTimer);
+  }
+  $('jcYes').addEventListener('click', function () {
+    var a = S.jamAlt; if (!a) return;
+    S.avoid = (S.avoid || []).concat(a.pts).slice(-20); // 避けた区間はこの案内中ずっと避ける
+    hideJamCard();
+    adoptRoute(a.raw);
+    speak('別のルートで案内します。', true);
+  });
+  $('jcNo').addEventListener('click', function () {
+    hideJamCard();
+    S.jamSnoozeUntil = Date.now() + 10 * 60 * 1000; // 10分は聞かない
+    toast('このままのルートで案内します', 2000);
+  });
 
   function avoidAhead() {
     if (!S.route || !S.lastUpdate) return;
@@ -1400,7 +1578,7 @@ body[data-profile="foot"] .arrive-flag { background: #1f9d6b; }
   $('goBtn').addEventListener('click', function () { startNav(false); });
   $('simBtn').addEventListener('click', function () { startNav(true); });
   $('cancelBtn').addEventListener('click', cancelPreview);
-  $('jamChip').addEventListener('click', avoidAhead);
+  $('jamChip').addEventListener('click', function () { if (navigator.onLine) { $('jamChip').hidden = true; jamCheck(true); } else avoidAhead(); });
 
   // 有料道路：設定とルート確認の両方から切り替え
   function renderToll() {

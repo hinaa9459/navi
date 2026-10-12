@@ -443,7 +443,7 @@
   // ① 実際の走行ペースから到着予定を補正する
   // ② のろのろ運転（約8km/h未満）が2分半続いたら「この先を避ける」を提案する
   function makeTrafficWatcher() {
-    var pace = [], factor = 1, slowSince = null, offered = false, slowAlong = 0, stopSince = null;
+    var pace = [], factor = 1, slowSince = null, offered = false, offeredAt = 0, slowAlong = 0, stopSince = null;
     var w = {
       reset: function () { pace = []; factor = 1; slowSince = null; offered = false; stopSince = null; },
       // u: update() の戻り値, now: 現在時刻[ms]
@@ -474,8 +474,11 @@
           if (offered) res.cleared = true;
           slowSince = null; offered = false;
         }
+        // 渋滞が続いていれば5分ごとに別ルートを調べ直す
+        if (offered && slowSince !== null && now - offeredAt > 5 * 60 * 1000) offered = false;
         // のろのろでも少しずつ進んでいるときだけ渋滞とみなす（駐車場で止まっているだけなら出さない）
-        if (slowSince !== null && !offered && now - slowSince > 150000 && u.along - slowAlong > 40) { offered = true; res.offerAvoid = true; }
+        if (slowSince !== null && !offered && now - slowSince > 150000 && u.along - slowAlong > 40) { offered = true; offeredAt = now; res.offerAvoid = true; }
+        res.factor = factor;
         return res;
       },
       // 新しいルートに切り替えたとき（ペースの記録だけ捨てる）
@@ -484,8 +487,71 @@
     return w;
   }
 
+  // ---------- 渋滞時の別ルート比較 ----------
+  // いまのルートの残り（route の along より先）と、別ルート altCoords が、どれだけ同じ道を通るか（0〜1）
+  // 別ルートの最初の15kmだけを比べる（分かれる場所が大事なので）
+  function routeOverlap(route, along, altCoords) {
+    var cur = [], d;
+    for (d = along; d <= route.total; d += 50) cur.push(pointAt(route, d).p);
+    var alt = [], acc = 0;
+    alt.push(altCoords[0]);
+    for (var i = 1; i < altCoords.length && acc < 15000; i++) {
+      var seg = dist(altCoords[i - 1], altCoords[i]);
+      acc += seg;
+      if (dist(alt[alt.length - 1], altCoords[i]) >= 50) alt.push(altCoords[i]);
+    }
+    if (!cur.length || alt.length < 2) return 1;
+    var same = 0;
+    alt.forEach(function (p) {
+      for (var j = 0; j < cur.length; j++) if (dist(p, cur[j]) < 40) { same++; return; }
+    });
+    return same / alt.length;
+  }
+
+  // 別ルートに替えるべきか。curSec＝いまのルートの残り時間（渋滞の補正込み）、altSec＝別ルートの所要時間
+  // 3分以上かつ残り時間の8%以上早く、道もはっきり違うときだけ勧める（わずかな差で振り回さない）
+  function compareJam(curSec, altSec, overlap) {
+    var save = curSec - altSec, saveMin = Math.round(save / 60);
+    if (overlap >= 0.85) return { offer: false, saveMin: saveMin, reason: 'same' };
+    if (saveMin >= 3 && save >= curSec * 0.08) return { offer: true, saveMin: saveMin, reason: 'faster' };
+    return { offer: false, saveMin: saveMin, reason: 'notFaster' };
+  }
+
+  // ---------- 交通情報（事故・規制）の参照先 ----------
+  // ルートの高速道路区間がある都道府県（都道府県コード）と道路名から、見るべき高速道路会社を決める
+  var EXPRESSWAY_CO = {
+    nexcoE: { name: 'NEXCO東日本 ドラとら', note: '東日本の高速道路の事故・規制・渋滞', url: 'https://www.drivetraffic.jp/' },
+    nexcoC: { name: 'NEXCO中日本 アイハイウェイ', note: '中央道・東名・新東名・伊勢道などの事故・規制・渋滞', url: 'https://www.c-ihighway.jp/' },
+    nexcoW: { name: 'NEXCO西日本 交通情報', note: '西日本の高速道路の事故・規制・渋滞', url: 'https://www.w-nexco.co.jp/traffic_info/' },
+    shutoko: { name: '首都高 交通情報', note: '首都高速の事故・規制・渋滞', url: 'https://www.shutoko.jp/' },
+    hanshin: { name: '阪神高速 交通情報', note: '阪神高速の事故・規制・渋滞', url: 'https://www.hanshin-exp.co.jp/drivers/' }
+  };
+  function prefNexco(code) {
+    var c = +code, out = [];
+    if (c >= 1 && c <= 15 || c === 20) out.push('nexcoE');                       // 北海道・東北・関東・新潟・長野
+    if (c === 13 || c === 14 || (c >= 16 && c <= 24)) out.push('nexcoC');         // 東京・神奈川（中央道・東名）、北陸、山梨〜三重
+    if (c === 18 || c >= 25) out.push('nexcoW');                                  // 福井（一部）、近畿〜九州・沖縄
+    return out;
+  }
+  // 高速道路の区間か（道路名・路線番号・出口名で判定）
+  function isExpresswayStep(st) {
+    return /自動車道|高速|首都高|有料道路|阪神高速/.test(st.name || '') || /^E\d/.test(String(st.ref || '')) || !!st.exitName;
+  }
+  // prefCodes：高速区間の地点の都道府県コード（2桁）一覧、roadNames：ルートの道路名一覧
+  function trafficCompanies(prefCodes, roadNames) {
+    var keys = [];
+    function add(k) { if (keys.indexOf(k) < 0) keys.push(k); }
+    var names = roadNames.join(' ');
+    if (/首都高/.test(names)) add('shutoko');
+    if (/阪神高速/.test(names)) add('hanshin');
+    var nexcoRoad = /自動車道|東名|名神|新東名|新名神|道央道|東関東/.test(names);
+    if (nexcoRoad || prefCodes.length) prefCodes.forEach(function (p) { prefNexco(p).forEach(add); });
+    return keys.map(function (k) { return EXPRESSWAY_CO[k]; });
+  }
+
   var api = {
-    makeTrafficWatcher: makeTrafficWatcher, describe: describe, headingAhead: headingAhead, exitLabel: exitLabel, speechPhrase: speechPhrase, currentRoad: currentRoad, bannerParts: bannerParts, refLabel: refLabel,
+    trafficCompanies: trafficCompanies, isExpresswayStep: isExpresswayStep, prefNexco: prefNexco,
+    makeTrafficWatcher: makeTrafficWatcher, routeOverlap: routeOverlap, compareJam: compareJam, describe: describe, headingAhead: headingAhead, exitLabel: exitLabel, speechPhrase: speechPhrase, currentRoad: currentRoad, bannerParts: bannerParts, refLabel: refLabel,
     dist: dist, bearing: bearing, angleDiff: angleDiff, projectOnSegment: projectOnSegment,
     phrase: phrase, roadLabel: roadLabel, formatDistance: formatDistance,
     speechDistance: speechDistance, formatDuration: formatDuration,
