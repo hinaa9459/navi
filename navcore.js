@@ -68,7 +68,8 @@
   function towards(step) {
     if (!step.destinations) return '';
     var first = String(step.destinations).split(/[,;、]/)[0].trim();
-    return first ? first + '方面' : '';
+    if (!first) return '';
+    return /(出口|入口|IC|JCT|インター|ジャンクション)$/.test(first) ? first : first + '方面';
   }
 
   // 「右折です」「左方向、出口です」などの案内文
@@ -82,8 +83,12 @@
       case 'roundabout turn': return 'ロータリーを' + d.turn + 'です';
       case 'exit roundabout':
       case 'exit rotary': return 'ロータリーを出ます';
-      case 'on ramp': return (to ? to + '、' : '') + d.side + '方向、入口です';
-      case 'off ramp': return (to ? to + '、' : '') + d.side + '方向、出口です';
+      case 'on ramp':
+        if (/入口$/.test(to)) return to + '、' + d.side + '方向です';
+        return (to ? to + '、' : '') + d.side + '方向、入口です';
+      case 'off ramp':
+        if (/出口$/.test(to)) return to + '、' + d.side + '方向です';
+        return (to ? to + '、' : '') + d.side + '方向、出口です';
       case 'fork': return (to ? to + '、' : '') + d.side + '方向です';
       case 'merge': return '合流です';
       case 'end of road': return '突き当たりを' + d.turn + 'です';
@@ -113,7 +118,7 @@
   // 読み上げ用 "300メートル" / "1.5キロ"
   function speechDistance(m) {
     if (m < 300) return Math.max(100, Math.round(m / 50) * 50) + 'メートル';
-    if (m < 1000) return Math.round(m / 100) * 100 + 'メートル';
+    if (m < 950) return Math.round(m / 100) * 100 + 'メートル';
     var km = Math.round(m / 500) / 2;
     return (km % 1 === 0 ? km.toFixed(0) : km.toFixed(1)) + 'キロ';
   }
@@ -129,7 +134,7 @@
   function isGuidance(step, prev) {
     var t = step.maneuver.type, mod = step.maneuver.modifier || 'straight';
     if (t === 'depart' || t === 'notification' || t === 'new name') return false;
-    if (t === 'arrive' || t === 'roundabout' || t === 'rotary') return true;
+    if (t === 'arrive' || t === 'roundabout' || t === 'rotary' || t === 'on ramp' || t === 'off ramp') return true;
     if (mod === 'straight' && t !== 'end of road') return false;
     if (t === 'continue' && /^slight/.test(mod) && prev && prev.name && prev.name === step.name) return false;
     return true;
@@ -154,6 +159,11 @@
       k = best;
       steps[s].at = cum[best];          // ルート始点からこの曲がり角までの距離
       steps[s].index = s;
+    }
+    // 高速の入口に名前が無いときは、入った先の道路名を表示する
+    for (s = 0; s + 1 < steps.length; s++) {
+      var st = steps[s];
+      if (st.maneuver.type === 'on ramp' && !st.name && !st.destinations && !st.ref) st.name = steps[s + 1].name || '';
     }
     var guides = [];
     for (s = 0; s < steps.length; s++) {
@@ -237,7 +247,8 @@
     var v = speedMs || 0;
     var out = {
       along: along, dev: sn.dev, guide: g, guideIndex: gi, toNext: toNext,
-      remaining: remaining, remainingSec: remainingSeconds(route, along),
+      // etaScale: 案内中に渋滞を再確認して得た補正（1 = 補正なし）
+      remaining: remaining, remainingSec: remainingSeconds(route, along) * (route.etaScale || 1),
       speak: null, arrived: false
     };
 
@@ -315,7 +326,43 @@
     };
   }
 
+  // ---------- 渋滞への対応 ----------
+  // ① 実際の走行ペースから到着予定を補正する
+  // ② のろのろ運転（約8km/h未満）が2分半続いたら「この先を避ける」を提案する
+  function makeTrafficWatcher() {
+    var pace = [], factor = 1, slowSince = null, offered = false;
+    var w = {
+      reset: function () { pace = []; factor = 1; slowSince = null; offered = false; },
+      // u: update() の戻り値, now: 現在時刻[ms]
+      tick: function (route, u, speedMs, now) {
+        var planned = remainingSeconds(route, u.along);
+        pace.push({ t: now, p: planned });
+        while (pace.length > 1 && now - pace[0].t > 10 * 60 * 1000) pace.shift(); // 直近10分
+        var o = pace[0], done = o.p - planned, actual = (now - o.t) / 1000;
+        // 予定より遅い・速いの比率（0.85〜3倍に制限）
+        if (actual >= 180) factor = Math.max(0.85, Math.min(3, actual / Math.max(done, 30)));
+        // いまのペースが、この先およそ15分ぶん続くと仮定して残り時間を補正
+        var base = u.remainingSec;
+        var adjusted = base + (factor - 1) * Math.min(base, 15 * 60);
+
+        var res = { adjustedSec: adjusted, lateMin: Math.round((adjusted - base) / 60), offerAvoid: false, cleared: false };
+        if (u.remaining < 1000 || u.along < 200) { slowSince = null; return res; }
+        if (speedMs < 2.3) { if (slowSince === null) slowSince = now; }
+        else if (speedMs > 5.5) {
+          if (offered) res.cleared = true;
+          slowSince = null; offered = false;
+        }
+        if (slowSince !== null && !offered && now - slowSince > 150000) { offered = true; res.offerAvoid = true; }
+        return res;
+      },
+      // 新しいルートに切り替えたとき（ペースの記録だけ捨てる）
+      newRoute: function () { pace = []; slowSince = null; offered = false; }
+    };
+    return w;
+  }
+
   var api = {
+    makeTrafficWatcher: makeTrafficWatcher,
     dist: dist, bearing: bearing, angleDiff: angleDiff, projectOnSegment: projectOnSegment,
     phrase: phrase, roadLabel: roadLabel, formatDistance: formatDistance,
     speechDistance: speechDistance, formatDuration: formatDuration,

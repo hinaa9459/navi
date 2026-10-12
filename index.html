@@ -24,6 +24,7 @@
   --ink-dim: #9ba7b5;
   --sign-blue: #1d4f9e;   /* 一般道の案内標識の青 */
   --sign-green: #0b6e45;  /* 高速道路の案内標識の緑 */
+  --sign-green-ink: #5fd39a;
   --amber: #f2b400;
   --amber-ink: #1a1400;
   --danger: #e5484d;
@@ -71,6 +72,7 @@ body[data-mode="nav"] .maplibregl-ctrl-bottom-right { bottom: calc(108px + var(-
 /* ---------- 下部 計器バー ---------- */
 .bottom { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; padding: 0 12px calc(var(--bot) + 12px); pointer-events: none; }
 .bottom > * { pointer-events: auto; }
+.bottom { display: flex; flex-direction: column; }
 .fabs { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; margin-bottom: 10px; pointer-events: none; }
 .fabs > * { pointer-events: auto; }
 .fab { width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; background: var(--panel);
@@ -114,6 +116,21 @@ body[data-mode="nav"] .maplibregl-ctrl-bottom-right { bottom: calc(108px + var(-
 .status { color: var(--ink-dim); font-size: 15px; }
 .status.err { color: #ff8f8f; }
 
+.badges { display: flex; flex-wrap: wrap; gap: 6px; }
+.badge { font-size: 12px; font-weight: 600; padding: 4px 9px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line); }
+.badge.toll { color: var(--sign-green-ink); border-color: var(--sign-green); }
+.badge.dim { color: var(--ink-dim); }
+.toll-row { display: flex; align-items: center; gap: 12px; }
+.toll-row .label { font-size: 13px; color: var(--ink-dim); flex: none; }
+.toll-row .seg { flex: 1; }
+.seg.small button { height: 36px; font-size: 14px; }
+.status.warn { color: var(--amber); }
+.sheet-foot { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--ink-dim); }
+.sheet-foot a { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+.jam-chip { align-self: flex-start; margin-bottom: 10px; padding: 12px 16px; border-radius: 14px; background: var(--danger);
+  color: #fff; font-weight: 700; font-size: 16px; box-shadow: 0 4px 14px rgba(0,0,0,.35); }
+.cell.eta.late .label { color: var(--amber); font-weight: 700; }
+
 /* ---------- 検索パネル ---------- */
 .panel { position: fixed; inset: 0; z-index: 20; background: var(--panel); display: flex; flex-direction: column;
   padding-top: calc(var(--top) + 10px); }
@@ -135,7 +152,7 @@ body[data-mode="nav"] .maplibregl-ctrl-bottom-right { bottom: calc(108px + var(-
 
 /* ---------- 設定シート ---------- */
 .modal { position: fixed; inset: 0; z-index: 25; background: rgba(0,0,0,.5); display: flex; align-items: flex-end; }
-.modal .sheet { width: 100%; border-radius: 18px 18px 0 0; padding-bottom: calc(var(--bot) + 18px); gap: 16px; }
+.modal .sheet { width: 100%; max-height: 92%; overflow-y: auto; border-radius: 18px 18px 0 0; padding-bottom: calc(var(--bot) + 18px); gap: 16px; }
 .setting { display: grid; gap: 8px; }
 .setting .label { font-size: 13px; color: var(--ink-dim); }
 .seg { display: flex; background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 3px; }
@@ -200,13 +217,14 @@ body[data-mode="nav"] .toast { top: calc(var(--top) + 130px); }
     <button class="fab" id="voiceBtn" type="button" aria-label="音声案内のオン・オフ"></button>
   </div>
   <button class="sim-chip" id="simChip" type="button" hidden>模擬走行 40 km/h ▸</button>
+  <button class="jam-chip" id="jamChip" type="button" hidden>この先の渋滞を避ける</button>
 
   <!-- 通常時・案内中の計器 -->
   <div class="dash" id="dash">
     <div class="cell speed"><span class="label">速度</span><span class="val" id="vSpeed">0<small>km/h</small></span></div>
     <div class="cell" id="cGps"><span class="label">GPS</span><span class="gps-state" id="vGps">待機中</span></div>
     <div class="cell" id="cRemain" hidden><span class="label">残り</span><span class="val" id="vRemain">—</span></div>
-    <div class="cell eta" id="cEta" hidden><span class="label">到着予定</span><span class="val" id="vEta">—</span></div>
+    <div class="cell eta" id="cEta" hidden><span class="label" id="lEta">到着予定</span><span class="val" id="vEta">—</span></div>
     <button class="end-btn" id="endBtn" type="button" hidden>終了</button>
   </div>
 
@@ -220,7 +238,16 @@ body[data-mode="nav"] .toast { top: calc(var(--top) + 130px); }
       <span class="big" id="sTime"></span>
       <span class="meta"><span class="num" id="sDist"></span>　到着 <b id="sEta"></b></span>
     </div>
+    <div class="badges" id="sBadges" hidden></div>
+    <div class="toll-row">
+      <span class="label">有料道路</span>
+      <div class="seg small" id="segTollP"><button type="button" data-v="use">使う</button><button type="button" data-v="avoid">使わない</button></div>
+    </div>
     <div class="status" id="sStatus"></div>
+    <div class="sheet-foot">
+      <span id="sProvider"></span>
+      <a href="https://www.jartic.or.jp/" target="_blank" rel="noopener">いまの渋滞情報（JARTIC）↗</a>
+    </div>
     <div class="row">
       <button class="btn primary" id="goBtn" type="button" disabled>案内開始</button>
       <button class="btn ghost" id="simBtn" type="button" disabled>模擬走行</button>
@@ -251,6 +278,10 @@ body[data-mode="nav"] .toast { top: calc(var(--top) + 130px); }
       </div>
     </div>
     <div class="setting">
+      <span class="label">有料道路</span>
+      <div class="seg" id="segToll"><button type="button" data-v="use">使う</button><button type="button" data-v="avoid">使わない</button></div>
+    </div>
+    <div class="setting">
       <span class="label">案内中の地図の向き</span>
       <div class="seg" id="segOrient">
         <button type="button" data-v="head">進行方向が上</button><button type="button" data-v="north">北が上</button>
@@ -263,8 +294,8 @@ body[data-mode="nav"] .toast { top: calc(var(--top) + 130px); }
       </div>
     </div>
     <p class="fine">地図を長押しすると、その地点を目的地にできます。<br>
-      地図：国土地理院 地理院タイル／検索：国土地理院 住所検索・OpenStreetMap Nominatim／ルート：OSRM（© OpenStreetMap contributors）。
-      所要時間に渋滞は反映されません。案内は目安です。実際の交通規制・標識に従ってください。</p>
+      地図：国土地理院 地理院タイル／検索：国土地理院 住所検索・OpenStreetMap Nominatim／ルート：Valhalla（FOSSGIS）・OSRM（© OpenStreetMap contributors）。
+      ルートの所要時間に渋滞は含まれません。案内中は実際の走行ペースから到着予定を補正します。案内は目安です。実際の交通規制・標識に従ってください。</p>
     <button class="btn primary" id="closeSettings" type="button">閉じる</button>
   </div>
 </div>
@@ -288,6 +319,7 @@ body[data-mode="nav"] .toast { top: calc(var(--top) + 130px); }
 
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script src="navcore.js"></script>
+<script src="routing.js"></script>
 <script>
 (function () {
   'use strict';
@@ -310,6 +342,8 @@ body[data-mode="nav"] .toast { top: calc(var(--top) + 130px); }
     mode: 'idle',            // idle（通常）/ preview（ルート確認）/ nav（案内中）
     dest: null, raw: null, route: null, offDetect: null,
     lastReroute: 0, rerouting: false,
+    avoidTolls: store.get('avoidTolls', false), avoid: [],
+    traffic: N.makeTrafficWatcher(), lastUpdate: null, lastTraffic: null,
     sim: null, simKmh: 40,
     wakeLock: null, jaVoice: null
   };
@@ -328,7 +362,7 @@ body[data-mode="nav"] .toast { top: calc(var(--top) + 130px); }
           tiles: ['https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png'],
           attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>'
         },
-        route: { type: 'geojson', data: EMPTY, attribution: 'ルート: OSRM / © OpenStreetMap contributors' }
+        route: { type: 'geojson', data: EMPTY, attribution: 'ルート: Valhalla・OSRM / © OpenStreetMap contributors' }
       },
       layers: [
         { id: 'gsi', type: 'raster', source: 'gsi' },
@@ -506,6 +540,8 @@ body[data-mode="nav"] .toast { top: calc(var(--top) + 130px); }
     var r = S.route;
     if (!r) return;
     var u = N.update(r, p, S.speed);
+    S.lastUpdate = u;
+    S.lastTraffic = S.traffic.tick(r, u, S.speed, Date.now());
     if (u.dev < 25) S.display = N.pointAt(r, u.along).p; // 道路上に表示を合わせる
     renderBanner(u);
     renderRemain(u);
@@ -516,7 +552,12 @@ body[data-mode="nav"] .toast { top: calc(var(--top) + 130px); }
       return;
     }
     if (u.speak) speak(u.speak);
-    if (!S.sim && S.offDetect(u.dev, acc, S.speed)) reroute();
+    if (S.lastTraffic.offerAvoid) {
+      $('jamChip').hidden = false;
+      speak('渋滞しているようです。停車中に、この先を避けるボタンで、別のルートを探せます。');
+    }
+    if (S.lastTraffic.cleared) $('jamChip').hidden = true;
+    if (!S.sim && S.offDetect(u.dev, acc, S.speed)) reroute({ reason: 'off' });
   }
 
   function isHighway(u) {
@@ -539,7 +580,10 @@ body[data-mode="nav"] .toast { top: calc(var(--top) + 130px); }
   function renderRemain(u) {
     var rem = N.formatDistance(u.remaining).split(' ');
     $('vRemain').innerHTML = rem[0] + '<small>' + rem[1] + '</small>';
-    $('vEta').textContent = clock(Date.now() + u.remainingSec * 1000);
+    var t = S.lastTraffic, sec = t ? t.adjustedSec : u.remainingSec, late = t ? t.lateMin : 0;
+    $('vEta').textContent = clock(Date.now() + sec * 1000);
+    $('lEta').textContent = late >= 2 ? '到着予定 混雑+' + late + '分' : '到着予定';
+    $('cEta').classList.toggle('late', late >= 2);
   }
 
   function renderDash() {
@@ -579,21 +623,9 @@ body[data-mode="nav"] .toast { top: calc(var(--top) + 130px); }
       '<path d="M' + f(ex + dx * 12, ey + dy * 12) + 'L' + f(ex + px * 10, ey + py * 10) + 'L' + f(ex - px * 10, ey - py * 10) + 'Z" fill="currentColor" stroke-width="3"/></svg>';
   }
 
-  // ---------- ルート取得 ----------
-  function fetchRoute(from, to, headingDeg) {
-    var url = 'https://router.project-osrm.org/route/v1/driving/' +
-      from[0].toFixed(6) + ',' + from[1].toFixed(6) + ';' + to[0].toFixed(6) + ',' + to[1].toFixed(6) +
-      '?overview=full&geometries=geojson&steps=true';
-    if (headingDeg != null) url += '&bearings=' + (Math.round(headingDeg) % 360) + ',60;&radiuses=60;unlimited';
-    var ctl = new AbortController();
-    var timer = setTimeout(function () { ctl.abort(); }, 15000);
-    return fetch(url, { signal: ctl.signal }).then(function (res) { return res.json(); }).then(function (j) {
-      if (j.code === 'Ok' && j.routes && j.routes.length) return j;
-      if (headingDeg != null) return fetchRoute(from, to, null); // 進行方向の条件を外して再挑戦
-      throw new Error(j.code === 'NoRoute' ? '車で行けるルートが見つかりませんでした' : 'ルートを計算できませんでした');
-    }, function (e) {
-      throw new Error(e.name === 'AbortError' ? 'ルートサーバーから応答がありません' : 'インターネットに接続できません');
-    }).finally(function () { clearTimeout(timer); });
+  // ---------- ルート取得（routing.js が無料サーバー2つを順に試す） ----------
+  function computeRoute(from, to, heading, avoid) {
+    return Routing.compute(from, to, { avoidTolls: S.avoidTolls, heading: heading, avoidPoints: avoid });
   }
 
   function drawRoute(raw) {
@@ -601,39 +633,55 @@ body[data-mode="nav"] .toast { top: calc(var(--top) + 130px); }
   }
 
   // ---------- 目的地 → ルート確認 ----------
-  function setDest(d) {
+  function setDest(d, again) {
     S.dest = d;
-    saveRecent(d);
+    if (!again) saveRecent(d);
     destMarker.setLngLat([d.lon, d.lat]).addTo(map);
     setMode('preview');
     $('sName').textContent = d.name;
     $('sSub').textContent = d.sub || '';
     $('sSummary').hidden = true;
+    $('sBadges').hidden = true;
     $('goBtn').disabled = true; $('simBtn').disabled = true;
     setStatus('ルートを計算しています…');
     S.follow = false;
     if (!S.pos) {
       map.easeTo({ center: [d.lon, d.lat], zoom: 15, bearing: 0, pitch: 0, padding: { top: 0, bottom: 0, left: 0, right: 0 } });
-      setStatus('現在地を取得できていません。GPSが受信できたら、もう一度目的地を選んでください。', true);
+      setStatus('現在地を取得できていません。GPSが受信できたら、もう一度目的地を選んでください。', 'err');
       return;
     }
     var token = S.reqToken = Date.now();
-    fetchRoute(S.pos, [d.lon, d.lat], null).then(function (raw) {
+    computeRoute(S.pos, [d.lon, d.lat], null, null).then(function (raw) {
       if (token !== S.reqToken || S.mode !== 'preview') return;
       S.raw = raw;
       drawRoute(raw);
-      var r = raw.routes[0];
-      $('sTime').textContent = N.formatDuration(r.duration);
-      $('sDist').textContent = N.formatDistance(r.distance);
-      $('sEta').textContent = clock(Date.now() + r.duration * 1000);
-      $('sSummary').hidden = false;
-      setStatus('');
+      renderPreview(raw);
       $('goBtn').disabled = false; $('simBtn').disabled = false;
-      fitRoute(r.geometry.coordinates);
+      fitRoute(raw.routes[0].geometry.coordinates);
     }).catch(function (e) {
       if (token !== S.reqToken) return;
-      setStatus(e.message + '。少し待ってから、もう一度お試しください。', true);
+      setStatus(e.message + '。少し待ってから、もう一度お試しください。', 'err');
     });
+  }
+
+  function renderPreview(raw) {
+    var r = raw.routes[0], m = raw.meta;
+    $('sTime').textContent = N.formatDuration(r.duration);
+    $('sDist').textContent = N.formatDistance(r.distance);
+    $('sEta').textContent = clock(Date.now() + r.duration * 1000);
+    $('sSummary').hidden = false;
+    var toll = m.hasToll === true ? ['有料道路を通ります', 'toll'] : m.hasToll === false ? ['有料道路なし', ''] : ['有料道路：不明', ''];
+    var box = $('sBadges');
+    box.innerHTML = '';
+    [[toll[0], toll[1]], ['渋滞は時間に含まれません', 'dim']].forEach(function (b) {
+      var el = document.createElement('span');
+      el.className = 'badge' + (b[1] ? ' ' + b[1] : '');
+      el.textContent = b[0];
+      box.appendChild(el);
+    });
+    box.hidden = false;
+    $('sProvider').textContent = 'ルート：' + m.label;
+    setStatus(m.warnings.join(' / '), m.warnings.length ? 'warn' : '');
   }
 
   function fitRoute(coords) {
@@ -643,11 +691,12 @@ body[data-mode="nav"] .toast { top: calc(var(--top) + 130px); }
     map.fitBounds(b, { padding: { top: 90, bottom: sheetH + 40, left: 40, right: 40 }, bearing: 0, pitch: 0, duration: 800, maxZoom: 17 });
   }
 
-  function setStatus(text, err) {
+  function setStatus(text, kind) {
     var el = $('sStatus');
     el.textContent = text;
     el.hidden = !text;
-    el.classList.toggle('err', !!err);
+    el.classList.toggle('err', kind === 'err');
+    el.classList.toggle('warn', kind === 'warn');
   }
 
   function cancelPreview() {
@@ -669,6 +718,8 @@ body[data-mode="nav"] .toast { top: calc(var(--top) + 130px); }
     if (!S.raw) return;
     S.route = N.prepareRoute(S.raw);
     S.offDetect = N.makeOffRouteDetector();
+    S.avoid = [];
+    resetTraffic();
     setMode('nav');
     S.follow = true;
     $('recenter').hidden = true;
@@ -682,6 +733,8 @@ body[data-mode="nav"] .toast { top: calc(var(--top) + 130px); }
 
   function endNav() {
     stopSim();
+    S.avoid = [];
+    resetTraffic();
     clearRoute();
     setMode('idle');
     S.display = S.pos;
@@ -690,21 +743,49 @@ body[data-mode="nav"] .toast { top: calc(var(--top) + 130px); }
     updateCamera(true);
   }
 
-  function reroute() {
-    if (S.rerouting || Date.now() - S.lastReroute < 12000 || !S.dest || !S.pos) return;
+  // opts.reason: 'off'（ルート外れ）/ 'jam'（渋滞よけ）
+  function reroute(opts) {
+    var jam = opts && opts.reason === 'jam';
+    if (S.rerouting || !S.dest || !S.pos) return;
+    if (!jam && Date.now() - S.lastReroute < 12000) return;
     S.rerouting = true;
     S.lastReroute = Date.now();
-    speak('ルートを外れました。再検索します。', true);
+    speak(jam ? 'この先の区間を避けて、ルートを探します。' : 'ルートを外れました。再検索します。', true);
     $('bRoad').textContent = 'ルートを再検索中…';
-    fetchRoute(S.pos, [S.dest.lon, S.dest.lat], S.speed > 2 ? S.heading : null).then(function (raw) {
+    var heading = jam ? S.heading : (S.speed > 2 ? S.heading : null);
+    computeRoute(S.pos, [S.dest.lon, S.dest.lat], heading, S.avoid).then(function (raw) {
       if (S.mode !== 'nav') return;
-      S.raw = raw;
-      S.route = N.prepareRoute(raw);
-      drawRoute(raw);
-      speak('新しいルートで案内します。');
+      adoptRoute(raw);
+      speak(jam ? '別のルートで案内します。' : '新しいルートで案内します。');
+      if (raw.meta.warnings.length) toast(raw.meta.warnings.join(' / '), 6000);
     }).catch(function (e) {
-      toast(e.message + '。自動で再試行します。');
+      toast(e.message + (jam ? '。' : '。自動で再試行します。'));
     }).finally(function () { S.rerouting = false; });
+  }
+
+  function adoptRoute(raw) {
+    S.raw = raw;
+    S.route = N.prepareRoute(raw);
+    S.offDetect = N.makeOffRouteDetector();
+    S.traffic.newRoute();
+    drawRoute(raw);
+    if (S.sim) S.sim.along = 0; // 模擬走行は新しいルートの始点から
+  }
+
+  // ---------- 渋滞への対応（判定は navcore.js の makeTrafficWatcher） ----------
+  function resetTraffic() {
+    S.traffic.reset(); S.lastUpdate = null; S.lastTraffic = null;
+    $('jamChip').hidden = true;
+  }
+
+  function avoidAhead() {
+    if (!S.route || !S.lastUpdate) return;
+    var a = S.lastUpdate.along, end = Math.min(a + 1650, S.route.total - 300), pts = [];
+    for (var d = a + 150; d <= end; d += 300) pts.push(N.pointAt(S.route, d).p);
+    if (!pts.length) { toast('目的地が近いため、避けられる区間がありません'); return; }
+    S.avoid = (S.avoid || []).concat(pts).slice(-20); // 避けた区間はこの案内中ずっと避ける
+    $('jamChip').hidden = true;
+    reroute({ reason: 'jam' });
   }
 
   // ---------- 模擬走行（机の上で動作確認するための機能） ----------
@@ -728,7 +809,7 @@ body[data-mode="nav"] .toast { top: calc(var(--top) + 130px); }
   }
   function renderSimChip() { $('simChip').textContent = '模擬走行 ' + S.simKmh + ' km/h ▸'; }
   $('simChip').addEventListener('click', function () {
-    var list = [20, 40, 60, 100];
+    var list = [5, 20, 40, 60, 100];
     S.simKmh = list[(list.indexOf(S.simKmh) + 1) % list.length];
     renderSimChip();
   });
@@ -815,7 +896,11 @@ body[data-mode="nav"] .toast { top: calc(var(--top) + 130px); }
         it.d = N.dist(near, [it.lon, it.lat]);
         if (!out.some(function (o) { return N.dist([o.lon, o.lat], [it.lon, it.lat]) < 60; })) out.push(it);
       });
-      out.sort(function (x, y) { return x.d - y.d; });
+      // 入力した名前を含む候補を先に、その中では近い順
+      out.sort(function (x, y) {
+        var mx = x.name.indexOf(q) >= 0 ? 0 : 1, my = y.name.indexOf(q) >= 0 ? 0 : 1;
+        return mx - my || x.d - y.d;
+      });
       showResults(out.slice(0, 15), '検索結果');
     });
   }
@@ -880,6 +965,23 @@ body[data-mode="nav"] .toast { top: calc(var(--top) + 130px); }
   $('goBtn').addEventListener('click', function () { startNav(false); });
   $('simBtn').addEventListener('click', function () { startNav(true); });
   $('cancelBtn').addEventListener('click', cancelPreview);
+  $('jamChip').addEventListener('click', avoidAhead);
+
+  // 有料道路：設定とルート確認の両方から切り替え
+  function renderToll() {
+    segSelect('segToll', S.avoidTolls ? 'avoid' : 'use');
+    segSelect('segTollP', S.avoidTolls ? 'avoid' : 'use');
+  }
+  function setToll(e) {
+    var v = e.target.getAttribute('data-v');
+    if (!v || (v === 'avoid') === S.avoidTolls) return;
+    S.avoidTolls = v === 'avoid';
+    store.set('avoidTolls', S.avoidTolls);
+    renderToll();
+    if (S.mode === 'preview' && S.dest) setDest(S.dest, true); // ルートを計算し直す
+  }
+  $('segToll').addEventListener('click', setToll);
+  $('segTollP').addEventListener('click', setToll);
   $('recenter').addEventListener('click', resumeFollow);
 
   // 地図の長押しで目的地にする
@@ -982,6 +1084,7 @@ body[data-mode="nav"] .toast { top: calc(var(--top) + 130px); }
   });
 
   segSelect('segMap', S.mapMode);
+  renderToll();
   renderVoice();
   renderOrient();
   applyMapMode();
