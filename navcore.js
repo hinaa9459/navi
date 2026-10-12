@@ -75,73 +75,130 @@
   // 方面（出口・入口の行き先）
   function towards(step) {
     if (!step.destinations) return '';
-    var first = String(step.destinations).split(/[,;、]/)[0].trim();
+    var first = String(step.destinations).split(/[,;、]/)[0].replace(/[（(][^）)]*[）)]/g, '').trim();
     if (!first) return '';
     return /(出口|入口|IC|JCT|インター|ジャンクション)$/.test(first) ? first : first + '方面';
   }
 
-  // 「右折です」「左方向、出口です」などの案内文
-  function phrase(step) {
-    var m = step.maneuver, d = dirOf(step), t = m.type, to = towards(step);
+  // 出口名：「台場」→「台場出口」、「伊勢西IC」→「伊勢西IC出口」、JCTはそのまま（JCTは出口ではない）
+  function exitLabel(step) {
+    var n = String(step.exitName).trim();
+    if (/(JCT|ジャンクション)$/.test(n)) return n;
+    if (/出口$/.test(n)) return n;
+    return n + '出口';
+  }
+
+  // 「新千歳空港IC出口」「新千歳空港方面」→「新千歳空港」（同じ地名かどうかの比較用）
+  function baseName(n) { return String(n || '').replace(/(IC出口|インター出口|出口|方面|IC|JCT|インター)$/, ''); }
+
+  // 道路名（なければ路線番号）
+  function roadName(step) { return step.name || refLabel(step.ref); }
+
+  /*
+   * 案内文を作る唯一の関数。読み上げ・案内板・「その先」はすべてここから作る。
+   * （読み上げと案内板で別々に組み立てると、片方だけ直して食い違うため）
+   *   say    : 読み上げ（例「伊勢西IC出口、伊勢市街方面、左方向です」）
+   *   action : 案内板の大きい文字（例「左方向」）
+   *   sign   : 案内板の標識風の枠（交差点名・IC/JCT/出口名）。表示したものは必ず読み上げにも入る
+   *   sub    : 案内板の小さい文字（方面・道路名）
+   */
+  function describe(step) {
+    var m = step.maneuver, t = m.type, d = dirOf(step), to = towards(step), foot = !!step.foot;
+    if (foot && (t === 'on ramp' || t === 'off ramp')) t = 'fork'; // 徒歩に高速の入口・出口の言い方は使わない
+    var jn = step.junction || '';
+    var exit = step.exitName && !foot && (t === 'off ramp' || t === 'fork') ? exitLabel(step) : ''; // 出口名は車のときだけ
+    // 出口名と方面が同じ地名なら方面は言わない（「錦橋出口、錦橋方面」→「錦橋出口」）
+    if (exit && to && baseName(to) && baseName(exit).indexOf(baseName(to)) === 0) to = '';
+    var r = { say: '', action: '', sign: '', sub: '' };
     switch (t) {
       case 'arrive':
-        return (m.modifier === 'left' || m.modifier === 'right') ? '目的地は' + d.side + '側です' : '目的地です';
+        r.action = (m.modifier === 'left' || m.modifier === 'right') ? '目的地は' + d.side + '側' : '目的地';
+        r.say = r.action + 'です';
+        return r;
       case 'roundabout':
-      case 'rotary': return 'ロータリーを' + (m.exit || 1) + '番目の出口です';
-      case 'roundabout turn': return 'ロータリーを' + d.turn + 'です';
+      case 'rotary':
+        r.action = 'ロータリー ' + (m.exit || 1) + '番目の出口';
+        r.say = 'ロータリーを' + (m.exit || 1) + '番目の出口です';
+        r.sub = roadName(step);
+        return r;
+      case 'roundabout turn':
+        r.action = 'ロータリーを' + d.turn; r.say = r.action + 'です'; r.sub = roadName(step);
+        return r;
       case 'exit roundabout':
-      case 'exit rotary': return 'ロータリーを出ます';
+      case 'exit rotary':
+        r.action = 'ロータリーを出る'; r.say = 'ロータリーを出ます'; r.sub = roadName(step);
+        return r;
+      case 'facility': {
+        // 徒歩の階段・エスカレーターなど、フェリーの乗り降り
+        var F = { 'steps': '階段', 'escalator': 'エスカレーター', 'elevator': 'エレベーター',
+          'building enter': '建物に入ります', 'building exit': '建物を出ます', 'ferry enter': 'フェリーに乗ります', 'ferry exit': 'フェリーを降ります' };
+        var f = F[step.facility] || '案内地点';
+        r.action = f.replace(/ます$/, 'る');
+        r.say = /ます$/.test(f) ? f : f + 'です';
+        r.sub = roadName(step);
+        return r;
+      }
       case 'on ramp':
-        if (/入口$/.test(to)) return to + '、' + d.side + '方向です';
-        return (to ? to + '、' : '') + d.side + '方向、入口です';
+        r.action = d.side + '方向 入口';
+        r.sub = step.name || to || refLabel(step.ref);
+        r.say = /入口$/.test(to) ? to + '、' + d.side + '方向です' : (to ? to + '、' : '') + d.side + '方向、入口です';
+        if (jn) { r.sign = jn; r.say = jn + 'を' + d.side + '方向、入口です'; }
+        return r;
       case 'off ramp':
-        if (step.exitName) return exitLabel(step) + '、' + d.side + '方向です';
-        if (/出口$/.test(to)) return to + '、' + d.side + '方向です';
-        return (to ? to + '、' : '') + d.side + '方向、出口です';
-      case 'fork': return (to ? to + '、' : '') + d.side + '方向です';
-      case 'merge': return '合流です';
-      case 'end of road': return '突き当たりを' + d.turn + 'です';
-      default: return d.turn + 'です';
+      case 'fork':
+        r.action = d.side + '方向';
+        r.sign = exit || jn;
+        if (exit) r.say = exit + '、' + (to ? to + '、' : '') + d.side + '方向です';
+        else if (jn) r.say = jn + 'を' + d.side + '方向です' ;
+        else if (t === 'off ramp') r.say = /出口$/.test(to) ? to + '、' + d.side + '方向です' : (to ? to + '、' : '') + d.side + '方向、出口です';
+        else if (to) r.say = to + '、' + d.side + '方向です';
+        else if (step.name && !foot) r.say = d.side + '方向、' + step.name + 'です';
+        else r.say = d.side + '方向です';
+        r.sub = to || (r.sign ? '' : roadName(step));
+        break;
+      case 'merge':
+        r.action = '合流';
+        r.sub = roadName(step);
+        r.say = step.name && !foot ? step.name + 'に合流です' : '合流です';
+        break;
+      case 'end of road':
+        r.action = '突き当たりを' + d.turn;
+        r.sign = jn;
+        r.say = jn ? '突き当たり、' + jn + 'を' + d.turn + 'です' : r.action + 'です';
+        r.sub = to || roadName(step);
+        break;
+      default:
+        r.action = d.turn;
+        r.sign = jn;
+        r.say = jn ? jn + 'を' + d.turn + 'です' : d.turn + 'です';
+        r.sub = to || roadName(step);
     }
+    if (r.sign && r.sub === r.sign) r.sub = '';
+    return r;
   }
 
-  // 出口名：「台場」→「台場出口」
-  function exitLabel(step) {
-    return String(step.exitName).replace(/(出口|IC|インター)$/, '') + '出口';
-  }
-
-  // 読み上げ用：交差点名があれば「甲府警察署前を左折です」、高速などの分岐は行き先の道路名も
-  function speechPhrase(step) {
-    var j = step.junction, t = step.maneuver.type, d = dirOf(step);
-    if (j) {
-      if (t === 'turn' || t === 'continue' || t === 'end of road') return j + 'を' + d.turn + 'です';
-      if (t === 'fork') return j + 'を' + d.side + '方向です';
-    }
-    if ((t === 'fork' || t === 'merge') && !towards(step) && step.name && !step.foot) {
-      return t === 'merge' ? step.name + 'に合流です' : d.side + '方向、' + step.name + 'です';
-    }
-    return phrase(step);
-  }
+  // 以前からの呼び名（中身はすべて describe）
+  function phrase(step) { return describe(step).say; }
+  function speechPhrase(step) { return describe(step).say; }
+  function bannerParts(step) { var r = describe(step); return { action: r.action, sign: r.sign, sub: r.sub }; }
+  function roadLabel(step) { var r = describe(step); return r.sign || r.sub; }
 
   // いま走っている道路の名前
   function currentRoad(route, along) {
     var st = route.steps, cur = null;
     for (var i = 0; i < st.length; i++) if (st[i].at <= along + 1 && st[i].maneuver.type !== 'arrive') cur = st[i];
     if (!cur) return '';
-    if (cur.name) return cur.name;
-    if (cur.ref) return String(cur.ref).split(';')[0] + '号';
-    return '';
+    return cur.name || refLabel(cur.ref);
   }
 
-  // 曲がった先の道路名（バナーの小さい文字）
-  function roadLabel(step) {
-    if (step.maneuver.type === 'arrive') return '';
-    if (step.exitName && step.maneuver.type === 'off ramp') return exitLabel(step);
-    var to = towards(step);
-    if (to) return to;
-    if (step.name) return step.name;
-    if (step.ref) return String(step.ref).split(';')[0] + '号';
-    return '';
+  // 路線番号の表示：「20」→「20号」、「E1A」はそのまま
+  var EXPRESSWAY = { E1: '東名高速道路', E1A: '新東名高速道路', E2: '山陽自動車道', E2A: '中国自動車道', E4: '東北自動車道', E6: '常磐自動車道',
+    E8: '北陸自動車道', E13: '東北中央自動車道', E17: '関越自動車道', E20: '中央自動車道', E52: '中部横断自動車道' };
+  function refLabel(ref) {
+    if (!ref) return '';
+    var r = String(ref).split(';')[0];
+    if (/^\d+$/.test(r)) return r + '号';
+    return EXPRESSWAY[r] || r;
   }
 
   // 画面表示用 "320 m" / "1.2 km"
@@ -173,7 +230,7 @@
   function isGuidance(step, prev) {
     var t = step.maneuver.type, mod = step.maneuver.modifier || 'straight';
     if (t === 'depart' || t === 'notification' || t === 'new name') return false;
-    if (t === 'arrive' || t === 'roundabout' || t === 'rotary' || t === 'on ramp' || t === 'off ramp') return true;
+    if (t === 'arrive' || t === 'roundabout' || t === 'rotary' || t === 'on ramp' || t === 'off ramp' || t === 'facility') return true;
     if (mod === 'straight' && t !== 'end of road') return false;
     if (t === 'continue' && /^slight/.test(mod) && prev && prev.name && prev.name === step.name) return false;
     return true;
@@ -317,7 +374,8 @@
       var first = route.lastGuide === -1;
       route.lastGuide = gi;
       if (!first && toNext > straightLong) {
-        out.speak = foot ? 'この先、しばらく直進です' : 'この先、しばらく道なりです';
+        out.speak = foot ? 'この先、しばらく直進です'
+          : toNext >= 10000 ? 'この先、およそ' + Math.round(toNext / 1000) + 'キロ道なりです' : 'この先、しばらく道なりです';
         said.lastAt = along;
         return out;
       }
@@ -378,29 +436,39 @@
   // ① 実際の走行ペースから到着予定を補正する
   // ② のろのろ運転（約8km/h未満）が2分半続いたら「この先を避ける」を提案する
   function makeTrafficWatcher() {
-    var pace = [], factor = 1, slowSince = null, offered = false;
+    var pace = [], factor = 1, slowSince = null, offered = false, slowAlong = 0, stopSince = null;
     var w = {
-      reset: function () { pace = []; factor = 1; slowSince = null; offered = false; },
+      reset: function () { pace = []; factor = 1; slowSince = null; offered = false; stopSince = null; },
       // u: update() の戻り値, now: 現在時刻[ms]
       tick: function (route, u, speedMs, now) {
         var planned = remainingSeconds(route, u.along);
-        pace.push({ t: now, p: planned });
+        // 5分以上止まっていたら休憩とみなし、それまでのペースは到着予定の補正に使わない
+        if (speedMs < 0.5) { if (stopSince === null) stopSince = now; }
+        else {
+          if (stopSince !== null && now - stopSince > 5 * 60 * 1000) { pace = []; factor = 1; }
+          stopSince = null;
+        }
+        var resting = stopSince !== null && now - stopSince > 5 * 60 * 1000;
+        if (!resting) pace.push({ t: now, p: planned });
+        else pace = [];
         while (pace.length > 1 && now - pace[0].t > 10 * 60 * 1000) pace.shift(); // 直近10分
-        var o = pace[0], done = o.p - planned, actual = (now - o.t) / 1000;
+        var o = pace[0] || { t: now, p: planned }, done = o.p - planned, actual = (now - o.t) / 1000;
         // 予定より遅い・速いの比率（0.85〜3倍に制限）
         if (actual >= 180) factor = Math.max(0.85, Math.min(3, actual / Math.max(done, 30)));
+        if (resting) factor = 1;
         // いまのペースが、この先およそ15分ぶん続くと仮定して残り時間を補正
         var base = u.remainingSec;
         var adjusted = base + (factor - 1) * Math.min(base, 15 * 60);
 
         var res = { adjustedSec: adjusted, lateMin: Math.round((adjusted - base) / 60), offerAvoid: false, cleared: false };
         if (u.remaining < 1000 || u.along < 200) { slowSince = null; return res; }
-        if (speedMs < 2.3) { if (slowSince === null) slowSince = now; }
+        if (speedMs < 2.3) { if (slowSince === null) { slowSince = now; slowAlong = u.along; } }
         else if (speedMs > 5.5) {
           if (offered) res.cleared = true;
           slowSince = null; offered = false;
         }
-        if (slowSince !== null && !offered && now - slowSince > 150000) { offered = true; res.offerAvoid = true; }
+        // のろのろでも少しずつ進んでいるときだけ渋滞とみなす（駐車場で止まっているだけなら出さない）
+        if (slowSince !== null && !offered && now - slowSince > 150000 && u.along - slowAlong > 40) { offered = true; res.offerAvoid = true; }
         return res;
       },
       // 新しいルートに切り替えたとき（ペースの記録だけ捨てる）
@@ -410,7 +478,7 @@
   }
 
   var api = {
-    makeTrafficWatcher: makeTrafficWatcher, speechPhrase: speechPhrase, currentRoad: currentRoad,
+    makeTrafficWatcher: makeTrafficWatcher, describe: describe, exitLabel: exitLabel, speechPhrase: speechPhrase, currentRoad: currentRoad, bannerParts: bannerParts, refLabel: refLabel,
     dist: dist, bearing: bearing, angleDiff: angleDiff, projectOnSegment: projectOnSegment,
     phrase: phrase, roadLabel: roadLabel, formatDistance: formatDistance,
     speechDistance: speechDistance, formatDuration: formatDuration,

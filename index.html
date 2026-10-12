@@ -243,6 +243,15 @@ body[data-profile="foot"] .mode-btn { color: #4fd39c; border-color: #1f9d6b; }
 .save-chip { background: var(--panel); color: var(--ink); border: 1px solid var(--line); }
 .resume-chip { padding: 12px 16px; border-radius: 14px; background: var(--amber); color: var(--amber-ink); font-weight: 700; font-size: 15px;
   box-shadow: 0 4px 14px rgba(0,0,0,.35); text-align: left; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.voice-sel { height: 46px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); padding: 0 12px; font: inherit; font-size: 15px; }
+.sheet.arrive { justify-items: center; text-align: center; gap: 10px; padding-top: 24px; }
+.arrive-flag { width: 56px; height: 56px; border-radius: 50%; background: var(--sign-blue); color: #fff; display: grid; place-items: center; border: 2px solid #fff; }
+.arrive-flag svg { width: 28px; height: 28px; }
+body[data-profile="foot"] .arrive-flag { background: #1f9d6b; }
+.arrive-t { font-size: 20px; font-weight: 800; }
+.arrive-n { font-size: 16px; font-weight: 700; color: var(--amber); }
+.arrive-s { font-size: 14px; color: var(--ink-dim); font-family: var(--font-num); }
+.sheet.arrive .btn { width: 100%; margin-top: 6px; }
 .ver { font-size: 12px; color: var(--ink-dim); display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .ver b { color: var(--ink); font-family: var(--font-num); font-size: 14px; }
 
@@ -293,6 +302,7 @@ body[data-profile="foot"] .mode-btn { color: #4fd39c; border-color: #1f9d6b; }
   </div>
   <div class="chips">
     <div class="net-chip" id="netChip" hidden>オフライン：保存済みの地図で表示中</div>
+    <div class="net-chip" id="drChip" hidden>GPSを受信できません：推定位置で案内中</div>
     <div class="save-chip" id="saveChip" hidden></div>
     <button class="resume-chip" id="resumeChip" type="button" hidden></button>
   </div>
@@ -350,7 +360,7 @@ body[data-profile="foot"] .mode-btn { color: #4fd39c; border-color: #1f9d6b; }
 <div class="panel" id="searchPanel" hidden>
   <div class="panel-head">
     <form id="searchForm" autocomplete="off">
-      <input id="q" type="search" enterkeyhint="search" placeholder="施設名・住所（例：甲府駅）">
+      <input id="q" type="search" enterkeyhint="search" placeholder="施設名・住所">
       <button class="btn primary" type="submit" style="flex:none">検索</button>
     </form>
     <button class="btn ghost" id="closeSearch" type="button">閉じる</button>
@@ -394,6 +404,19 @@ body[data-profile="foot"] .mode-btn { color: #4fd39c; border-color: #1f9d6b; }
       <span class="fine" id="storageLine"></span>
     </div>
     <div class="setting">
+      <span class="label">声の高さ</span>
+      <div class="seg" id="segPitch"><button type="button" data-v="1">標準</button><button type="button" data-v="1.3">高め</button><button type="button" data-v="1.6">かわいい</button></div>
+    </div>
+    <div class="setting">
+      <span class="label">話す速さ</span>
+      <div class="seg" id="segRate"><button type="button" data-v="0.9">ゆっくり</button><button type="button" data-v="1">標準</button><button type="button" data-v="1.15">はやめ</button></div>
+    </div>
+    <div class="setting">
+      <span class="label">声の種類（iPhoneに入っている日本語の声）</span>
+      <select id="voiceSel" class="voice-sel"></select>
+      <span class="fine">「設定」→「アクセシビリティ」→「読み上げコンテンツ」→「声」→「日本語」で、O-renやKyoko（拡張）などの声を追加できます。</span>
+    </div>
+    <div class="setting">
       <span class="label">音声</span>
       <div class="row">
         <button class="btn ghost" id="voiceTest" type="button" style="flex:1">音声テスト</button>
@@ -433,6 +456,17 @@ body[data-profile="foot"] .mode-btn { color: #4fd39c; border-color: #1f9d6b; }
   </div>
 </div>
 
+<!-- 到着 -->
+<div class="modal" id="arriveModal" hidden>
+  <div class="sheet arrive">
+    <div class="arrive-flag"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 21V4h1.6l.4 1H19l-2.5 4.5L19 14H8v7z"/></svg></div>
+    <div class="arrive-t">目的地に到着しました</div>
+    <div class="arrive-n" id="arName"></div>
+    <div class="arrive-s" id="arStats"></div>
+    <button class="btn primary" id="arClose" type="button">閉じる</button>
+  </div>
+</div>
+
 <div class="toast" id="toast" hidden></div>
 
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
@@ -442,7 +476,7 @@ body[data-profile="foot"] .mode-btn { color: #4fd39c; border-color: #1f9d6b; }
 <script>
 (function () {
   'use strict';
-  var APP_VERSION = '1.4.0', APP_DATE = '2026-10-12';
+  var APP_VERSION = '1.5.1', APP_DATE = '2026-10-12';
   var N = window.NavCore;
   var $ = function (id) { return document.getElementById(id); };
 
@@ -465,6 +499,7 @@ body[data-profile="foot"] .mode-btn { color: #4fd39c; border-color: #1f9d6b; }
     avoidTolls: store.get('avoidTolls', false), avoid: [],
     traffic: N.makeTrafficWatcher(), lastUpdate: null, lastTraffic: null,
     profile: store.get('profile', 'car'),   // car（車）/ foot（徒歩）
+    voicePitch: store.get('voicePitch', 1), voiceRate: store.get('voiceRate', 1),
     saveMap: store.get('saveMap', true), offlineWarned: false,
     compass: null, compassT: 0, compassOn: false,
     sim: null, simKmh: 40,
@@ -486,7 +521,7 @@ body[data-profile="foot"] .mode-btn { color: #4fd39c; border-color: #1f9d6b; }
     dragRotate: false, pitchWithRotate: false, touchPitch: false, fadeDuration: 0
   });
   map.touchZoomRotate.disableRotation();
-  if (location.hash === '#debug') window.__map = map; // 動作確認用
+  if (location.hash === '#debug') { window.__map = map; window.__S = S; } // 動作確認用
 
   var carEl = document.createElement('div');
   carEl.className = 'car';
@@ -590,7 +625,9 @@ body[data-profile="foot"] .mode-btn { color: #4fd39c; border-color: #1f9d6b; }
     if (!M.fixP) return;
     var fdt = M.last ? Math.min(0.1, (now - M.last) / 1000) : 0.016;
     M.last = now;
-    var dt = Math.min(1.5, (now - M.fixT) / 1000);
+    // GPSが途切れても案内中・走行中なら最大2分はルートに沿って進め続ける（トンネル対策）
+    var drOk = S.mode === 'nav' && M.fixAlong !== null && M.fixV > 5;
+    var dt = Math.min(drOk ? 120 : 1.5, (now - M.fixT) / 1000);
     var target, th = M.fixH;
     if (S.mode === 'nav' && S.route && M.fixAlong !== null) {
       // 案内中はルートに沿って先読みする（カーブも道なりに動く）
@@ -635,6 +672,24 @@ body[data-profile="foot"] .mode-btn { color: #4fd39c; border-color: #1f9d6b; }
     M.snapCamera = false;
   }
   requestAnimationFrame(frame);
+
+  // ---------- トンネルなどでGPSが途切れたとき：直前の速度でルート上を進んだとみなして案内を続ける ----------
+  var drShown = false;
+  setInterval(function () {
+    var gap = (performance.now() - M.fixT) / 1000;
+    var active = S.mode === 'nav' && S.route && (!S.sim || S.sim.paused) && M.fixAlong !== null && M.fixV > 5 && gap > 4 && gap < 120;
+    if (active) {
+      var along = Math.min(S.route.total, M.fixAlong + M.fixV * gap);
+      var u = N.update(S.route, N.pointAt(S.route, along).p, M.fixV);
+      S.lastUpdate = u;
+      renderBanner(u); renderRemain(u);
+      if (u.speak) speak(u.speak);
+    }
+    if (active !== drShown) {
+      drShown = active;
+      $('drChip').hidden = !active;
+    }
+  }, 1000);
 
   // 通過した部分を消して、これから走るルートだけを描く
   function drawRemaining(along) {
@@ -710,8 +765,20 @@ body[data-profile="foot"] .mode-btn { color: #4fd39c; border-color: #1f9d6b; }
     if (!window.speechSynthesis) return;
     var pick = function () {
       var vs = speechSynthesis.getVoices();
-      S.jaVoice = vs.filter(function (v) { return v.lang === 'ja-JP' && /Kyoko|O-ren|Hattori/.test(v.name); })[0] ||
-                  vs.filter(function (v) { return /^ja/i.test(v.lang); })[0] || null;
+      var ja = vs.filter(function (v) { return /^ja/i.test(v.lang); });
+      var want = store.get('voiceName', '');
+      S.jaVoice = ja.filter(function (v) { return v.name === want; })[0] ||
+                  ja.filter(function (v) { return /Kyoko|O-ren|Hattori/.test(v.name); })[0] || ja[0] || null;
+      // 設定画面の一覧
+      var sel = $('voiceSel');
+      sel.innerHTML = '';
+      ja.forEach(function (v) {
+        var o = document.createElement('option');
+        o.value = v.name; o.textContent = v.name + (v.localService ? '' : '（オンライン）');
+        if (S.jaVoice && v.name === S.jaVoice.name) o.selected = true;
+        sel.appendChild(o);
+      });
+      if (!ja.length) { var o = document.createElement('option'); o.textContent = '日本語の声が見つかりません'; sel.appendChild(o); }
     };
     pick();
     speechSynthesis.onvoiceschanged = pick;
@@ -723,7 +790,8 @@ body[data-profile="foot"] .mode-btn { color: #4fd39c; border-color: #1f9d6b; }
       var u = new SpeechSynthesisUtterance(text);
       u.lang = 'ja-JP';
       if (S.jaVoice) u.voice = S.jaVoice;
-      u.rate = 1.0;
+      u.rate = S.voiceRate;
+      u.pitch = S.voicePitch; // 高めにすると可愛い寄りの声になる
       speechSynthesis.speak(u);
     } catch (e) {}
   }
@@ -763,6 +831,8 @@ body[data-profile="foot"] .mode-btn { color: #4fd39c; border-color: #1f9d6b; }
   }
 
   function handleFix(lon, lat, speed, heading, acc, ts) {
+    // 案内中は、精度の悪い位置（トンネル内の基地局測位など）を使わない。ルート外れの誤判定を防ぐ
+    if (S.mode === 'nav' && acc > 100 && S.gotFix) { setGps('精度低 ±' + Math.round(acc) + 'm', true); return; }
     var p = [lon, lat], prev = S.pos, prevT = S.lastFix;
     var v = (speed != null && speed >= 0) ? speed :
       (prev && prevT && ts > prevT ? N.dist(prev, p) / ((ts - prevT) / 1000) : 0);
@@ -811,9 +881,9 @@ body[data-profile="foot"] .mode-btn { color: #4fd39c; border-color: #1f9d6b; }
     renderBanner(u);
     renderRemain(u);
     if (u.arrived) {
-      speak('目的地付近に到着しました。案内を終了します。', true);
+      speak('目的地付近に到着しました。案内を終了します。お疲れさまでした。', true);
+      showArrival();
       endNav();
-      toast('目的地付近に到着しました');
       return null;
     }
     if (u.speak) speak(u.speak);
@@ -826,10 +896,13 @@ body[data-profile="foot"] .mode-btn { color: #4fd39c; border-color: #1f9d6b; }
     return u;
   }
 
+  // 高速道路を走っているか（道路名・路線番号E○○・次がJCTかで判定）→ 案内板を緑に
   function isHighway(u) {
     var steps = S.route.steps, cur = steps[0];
     for (var i = 0; i < steps.length; i++) if (steps[i].at <= u.along) cur = steps[i];
-    return /自動車道|高速|有料/.test(cur.name || '');
+    var road = N.currentRoad(S.route, u.along);
+    return /自動車道|高速|有料|首都高/.test(road) || /^E\d/.test(String(cur.ref || '')) ||
+      (/JCT$/.test(u.guide.exitName || '') && u.guide.maneuver.type !== 'on ramp');
   }
 
   function renderBanner(u) {
@@ -837,11 +910,11 @@ body[data-profile="foot"] .mode-btn { color: #4fd39c; border-color: #1f9d6b; }
     $('bIcon').innerHTML = arrowSVG(g);
     var d = N.formatDistance(u.toNext).split(' ');
     $('bDist').innerHTML = d[0] + '<small>' + d[1] + '</small>';
-    var j = g.junction || '';
-    $('bJunction').hidden = !j;
-    $('bJunction').textContent = j;
-    $('bText').textContent = N.phrase(g).replace(/です$/, '');
-    $('bRoad').textContent = N.roadLabel(g);
+    var bp = N.bannerParts(g); // 大きい動作／標識風の名前（交差点・IC・JCT）／道路名・方面
+    $('bJunction').hidden = !bp.sign;
+    $('bJunction').textContent = bp.sign;
+    $('bText').textContent = bp.action;
+    $('bRoad').textContent = bp.sub;
     $('banner').classList.toggle('hw', isHighway(u));
     // 曲がり角まで300mを切ったら残り距離のバーを出す
     var near = u.toNext <= 300 ? u.toNext / 300 : null;
@@ -853,7 +926,8 @@ body[data-profile="foot"] .mode-btn { color: #4fd39c; border-color: #1f9d6b; }
     $('bThen').hidden = !showThen;
     if (showThen) {
       $('bThenIcon').innerHTML = arrowSVG(nx);
-      $('bThenText').textContent = (nx.junction ? nx.junction + '　' : '') + N.phrase(nx).replace(/です$/, '');
+      var np = N.bannerParts(nx);
+      $('bThenText').textContent = (np.sign ? np.sign + '　' : '') + np.action;
     }
     renderPlace();
   }
@@ -1000,11 +1074,23 @@ body[data-profile="foot"] .mode-btn { color: #4fd39c; border-color: #1f9d6b; }
     setRouteJunctions(null);
   }
 
+  // 到着画面：目的地名・到着時刻・かかった時間・走行距離
+  function showArrival() {
+    var started = S.navStart || Date.now();
+    var min = Math.max(1, Math.round((Date.now() - started) / 60000));
+    var km = S.route ? S.route.total : 0;
+    $('arName').textContent = S.dest ? S.dest.name : '';
+    $('arStats').textContent = clock(Date.now()) + ' 到着　所要 ' + N.formatDuration(min * 60) + '　' + N.formatDistance(km);
+    $('arriveModal').hidden = false;
+  }
+  $('arClose').addEventListener('click', function () { $('arriveModal').hidden = true; });
+
   // ---------- 案内開始・終了 ----------
   function startNav(simulate) {
     if (!S.raw) return;
     S.route = N.prepareRoute(S.raw);
     S.offDetect = N.makeOffRouteDetector(S.route.foot);
+    S.navStart = Date.now();
     S.avoid = [];
     if (S.route.foot) startCompass();
     resetTraffic();
@@ -1101,7 +1187,7 @@ body[data-profile="foot"] .mode-btn { color: #4fd39c; border-color: #1f9d6b; }
     $('simChip').hidden = false;
     renderSimChip();
     S.sim.timer = setInterval(function () {
-      if (!S.route) return;
+      if (!S.route || S.sim.paused) return; // paused：トンネルの再現テスト用
       var ms = S.simKmh / 3.6;
       S.sim.along = Math.min(S.route.total, S.sim.along + ms);
       var pa = N.pointAt(S.route, S.sim.along);
@@ -1109,7 +1195,7 @@ body[data-profile="foot"] .mode-btn { color: #4fd39c; border-color: #1f9d6b; }
     }, 1000);
   }
   function stopSim() {
-    if (S.sim) clearInterval(S.sim.timer);
+    if (S.sim) { clearInterval(S.sim.timer); S.speed = 0; M.fixV = 0; renderDash(); } // 模擬走行の速度を残さない
     S.sim = null;
     $('simChip').hidden = true;
   }
@@ -1298,7 +1384,10 @@ body[data-profile="foot"] .mode-btn { color: #4fd39c; border-color: #1f9d6b; }
       clr.type = 'button'; clr.textContent = '履歴を消す';
       clr.addEventListener('click', function () { store.set('recent', []); renderRecent(); });
       section(box, '最近の目的地', clr);
-      list.forEach(function (it) { box.appendChild(itemButton(it)); });
+      list.forEach(function (it) {
+        if (samePlace(home, it) || favs.some(function (f) { return samePlace(f, it); })) return; // 自宅・お気に入りと重複するものは省く
+        box.appendChild(itemButton(it));
+      });
     }
   }
 
@@ -1400,6 +1489,23 @@ body[data-profile="foot"] .mode-btn { color: #4fd39c; border-color: #1f9d6b; }
     var v = e.target.getAttribute('data-v');
     if (!v) return;
     S.northUp = v === 'north'; store.set('northUp', S.northUp); renderOrient();
+  });
+  $('segPitch').addEventListener('click', function (e) {
+    var v = e.target.getAttribute('data-v'); if (!v) return;
+    S.voicePitch = +v; store.set('voicePitch', S.voicePitch); segSelect('segPitch', v);
+    unlockSpeech(); speak('300メートル先、右折です', true);
+  });
+  $('segRate').addEventListener('click', function (e) {
+    var v = e.target.getAttribute('data-v'); if (!v) return;
+    S.voiceRate = +v; store.set('voiceRate', S.voiceRate); segSelect('segRate', v);
+    unlockSpeech(); speak('300メートル先、右折です', true);
+  });
+  $('voiceSel').addEventListener('change', function () {
+    var name = $('voiceSel').value;
+    store.set('voiceName', name);
+    var v = speechSynthesis.getVoices().filter(function (x) { return x.name === name; })[0];
+    if (v) S.jaVoice = v;
+    unlockSpeech(); speak('300メートル先、右折です', true);
   });
   $('voiceTest').addEventListener('click', function () {
     unlockSpeech();
@@ -1721,6 +1827,9 @@ body[data-profile="foot"] .mode-btn { color: #4fd39c; border-color: #1f9d6b; }
   });
 
   segSelect('segMap', S.mapMode);
+  segSelect('segPitch', String(S.voicePitch));
+  segSelect('segRate', String(S.voiceRate));
+  initVoices();
   renderPlaceButtons();
   $('verNo').textContent = APP_VERSION;
   $('verDate').textContent = APP_DATE + ' 更新';

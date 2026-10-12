@@ -71,8 +71,13 @@
     20: ['off ramp', 'slight right'], 21: ['off ramp', 'slight left'],
     22: ['fork', 'straight'], 23: ['fork', 'slight right'], 24: ['fork', 'slight left'],
     25: ['merge', 'straight'], 26: ['roundabout'], 27: ['exit roundabout'],
-    28: ['notification'], 29: ['notification'],
-    37: ['merge', 'straight'], 38: ['merge', 'straight']
+    28: ['facility', 'straight', 'ferry enter'], 29: ['facility', 'straight', 'ferry exit'],
+    // 30〜36 は公共交通の乗り換え（車・徒歩のルートでは使わない）
+    30: ['notification'], 31: ['notification'], 32: ['notification'], 33: ['notification'], 34: ['notification'], 35: ['notification'], 36: ['notification'],
+    37: ['merge', 'slight right'], 38: ['merge', 'slight left'],
+    // 徒歩：エレベーター・階段・エスカレーター・建物の出入り
+    39: ['facility', 'straight', 'elevator'], 40: ['facility', 'straight', 'steps'], 41: ['facility', 'straight', 'escalator'],
+    42: ['facility', 'straight', 'building enter'], 43: ['facility', 'straight', 'building exit']
   };
 
   function valhalla(from, to, o) {
@@ -112,8 +117,8 @@
     if (!('sign' in m) || !m.instruction) return '';
     var r = m.instruction.match(/^(.+?)を(左|右|斜め|大きく|Uターン|直進)/);
     if (!r) return '';
-    var name = r[1].split('/')[0].trim();
-    if (!name || isAscii(name) || /方向|です/.test(name)) return '';
+    var name = r[1].split('/')[0].trim().replace(/I\.C\.?/g, 'IC').replace(/J\.C\.?T\.?/g, 'JCT');
+    if (!name || isAscii(name) || /方向|です|^分岐$/.test(name)) return '';
     var streets = (m.street_names || []).concat(m.begin_street_names || []);
     return streets.indexOf(name) >= 0 ? '' : name;
   }
@@ -125,7 +130,8 @@
       var mm = VALHALLA_TYPE[m.type] || ['new name', 'straight'];
       var names = m.street_names || m.begin_street_names || [];
       var name = names.filter(function (n) { return !isAscii(n); })[0] || '';
-      var ref = names.filter(function (n) { return /^\d+$/.test(n); })[0];
+      // 路線番号：国道などの数字（20）や高速道路の番号（E1A・C1）
+      var ref = names.filter(function (n) { return /^\d+$/.test(n); })[0] || names.filter(function (n) { return /^[EC]\d+[A-Z]?$/.test(n); })[0];
       var dest = '';
       if (m.sign) {
         var els = (m.sign.exit_toward_elements || []).concat(m.sign.exit_branch_elements || []);
@@ -145,6 +151,7 @@
         if (en) st.exitName = en;
       }
       if (mm[0] === 'roundabout') st.maneuver.exit = m.roundabout_exit_count || 1;
+      if (mm[0] === 'facility') st.facility = mm[2];
       return st;
     });
     var sum = j.trip.summary;
@@ -214,7 +221,7 @@
     return next();
   }
 
-  var api = { compute: compute, valhalla: valhalla, fromValhalla: fromValhalla, decodePolyline: decodePolyline };
+  var api = { VALHALLA_TYPE: VALHALLA_TYPE, compute: compute, valhalla: valhalla, fromValhalla: fromValhalla, decodePolyline: decodePolyline };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Routing = api;
 })(this);

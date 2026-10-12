@@ -5,7 +5,7 @@
  * ・ルート検索・住所検索：保存しない（つながらないときは画面側で案内する）
  * VERSION を変えると古いアプリ本体の保存版が消え、新しい版に入れ替わります。
  */
-var VERSION = '1.4.0';
+var VERSION = '1.5.1';
 var APP_CACHE = 'michi-app-' + VERSION;
 var TILE_CACHE = 'michi-tiles-v1';
 var LIB_CACHE = 'michi-libs-v1';
