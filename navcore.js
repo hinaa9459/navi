@@ -95,6 +95,7 @@
         if (/入口$/.test(to)) return to + '、' + d.side + '方向です';
         return (to ? to + '、' : '') + d.side + '方向、入口です';
       case 'off ramp':
+        if (step.exitName) return exitLabel(step) + '、' + d.side + '方向です';
         if (/出口$/.test(to)) return to + '、' + d.side + '方向です';
         return (to ? to + '、' : '') + d.side + '方向、出口です';
       case 'fork': return (to ? to + '、' : '') + d.side + '方向です';
@@ -104,13 +105,21 @@
     }
   }
 
-  // 読み上げ用：交差点名があれば「甲府警察署前を左折です」
+  // 出口名：「台場」→「台場出口」
+  function exitLabel(step) {
+    return String(step.exitName).replace(/(出口|IC|インター)$/, '') + '出口';
+  }
+
+  // 読み上げ用：交差点名があれば「甲府警察署前を左折です」、高速などの分岐は行き先の道路名も
   function speechPhrase(step) {
-    var j = step.junction, t = step.maneuver.type;
-    if (!j) return phrase(step);
-    var d = dirOf(step);
-    if (t === 'turn' || t === 'continue' || t === 'end of road') return j + 'を' + d.turn + 'です';
-    if (t === 'fork') return j + 'を' + d.side + '方向です';
+    var j = step.junction, t = step.maneuver.type, d = dirOf(step);
+    if (j) {
+      if (t === 'turn' || t === 'continue' || t === 'end of road') return j + 'を' + d.turn + 'です';
+      if (t === 'fork') return j + 'を' + d.side + '方向です';
+    }
+    if ((t === 'fork' || t === 'merge') && !towards(step) && step.name && !step.foot) {
+      return t === 'merge' ? step.name + 'に合流です' : d.side + '方向、' + step.name + 'です';
+    }
     return phrase(step);
   }
 
@@ -127,6 +136,7 @@
   // 曲がった先の道路名（バナーの小さい文字）
   function roadLabel(step) {
     if (step.maneuver.type === 'arrive') return '';
+    if (step.exitName && step.maneuver.type === 'off ramp') return exitLabel(step);
     var to = towards(step);
     if (to) return to;
     if (step.name) return step.name;

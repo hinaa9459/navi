@@ -5,7 +5,7 @@
  * ・ルート検索・住所検索：保存しない（つながらないときは画面側で案内する）
  * VERSION を変えると古いアプリ本体の保存版が消え、新しい版に入れ替わります。
  */
-var VERSION = '1.3.0';
+var VERSION = '1.4.0';
 var APP_CACHE = 'michi-app-' + VERSION;
 var TILE_CACHE = 'michi-tiles-v1';
 var LIB_CACHE = 'michi-libs-v1';
@@ -105,7 +105,7 @@ self.addEventListener('fetch', function (e) {
     return;
   }
   if (h === 'cyberjapandata.gsi.go.jp') { e.respondWith(cacheFirst(req, TILE_CACHE)); return; }
-  if (h === 'unpkg.com' || h === 'fonts.googleapis.com' || h === 'fonts.gstatic.com') { e.respondWith(cacheFirst(req, LIB_CACHE)); return; }
+  if (h === 'unpkg.com' || h === 'fonts.googleapis.com' || h === 'fonts.gstatic.com' || h === 'maps.gsi.go.jp') { e.respondWith(cacheFirst(req, LIB_CACHE)); return; }
   if (/overpass/.test(h)) { e.respondWith(networkThenCache(req, TILE_CACHE)); return; }
   // ルート検索・住所検索などはそのまま（保存しない）
 });

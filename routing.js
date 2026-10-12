@@ -139,6 +139,11 @@
       if (dest) st.destinations = dest;
       var jn = junctionName(m);
       if (jn) st.junction = jn;
+      // 高速の出口名（例：台場）
+      if (m.sign && m.sign.exit_name_elements) {
+        var en = m.sign.exit_name_elements.map(function (e) { return e.text; }).filter(function (t) { return t && !isAscii(t); })[0];
+        if (en) st.exitName = en;
+      }
       if (mm[0] === 'roundabout') st.maneuver.exit = m.roundabout_exit_count || 1;
       return st;
     });
