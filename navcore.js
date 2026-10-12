@@ -96,6 +96,26 @@
     }
   }
 
+  // 読み上げ用：交差点名があれば「甲府警察署前を左折です」
+  function speechPhrase(step) {
+    var j = step.junction, t = step.maneuver.type;
+    if (!j) return phrase(step);
+    var d = dirOf(step);
+    if (t === 'turn' || t === 'continue' || t === 'end of road') return j + 'を' + d.turn + 'です';
+    if (t === 'fork') return j + 'を' + d.side + '方向です';
+    return phrase(step);
+  }
+
+  // いま走っている道路の名前
+  function currentRoad(route, along) {
+    var st = route.steps, cur = null;
+    for (var i = 0; i < st.length; i++) if (st[i].at <= along + 1 && st[i].maneuver.type !== 'arrive') cur = st[i];
+    if (!cur) return '';
+    if (cur.name) return cur.name;
+    if (cur.ref) return String(cur.ref).split(';')[0] + '号';
+    return '';
+  }
+
   // 曲がった先の道路名（バナーの小さい文字）
   function roadLabel(step) {
     if (step.maneuver.type === 'arrive') return '';
@@ -264,7 +284,7 @@
     var highway = v > 22; // 約80km/h超
     var tiers = highway ? [2000, 1000, 500] : [700, 300];
     var soonDist = Math.max(50, Math.min(160, v * 7)); // 約7秒手前で「まもなく」
-    var text = phrase(g);
+    var text = speechPhrase(g);
 
     // 曲がり角を通過した直後：次が遠ければ「しばらく道なり」
     if (route.lastGuide !== gi) {
@@ -281,7 +301,7 @@
     if (!said.soon && toNext <= soonDist) {
       said.soon = true;
       var then = route.guides[gi + 1];
-      var chain = then && then.at - g.at < 120 ? '。その先、' + phrase(then) : '';
+      var chain = then && then.at - g.at < 120 ? '。その先、' + speechPhrase(then) : '';
       out.speak = 'まもなく、' + text + chain;
       said.lastAt = along;
       return out;
@@ -310,7 +330,7 @@
     var head = 'ルート案内を開始します。所要時間は約' + formatDuration(route.duration) + 'です。';
     if (g.maneuver.type === 'arrive') return head;
     if (g.at > 2500) return head + 'しばらく道なりです';
-    return head + speechDistance(g.at) + '先、' + phrase(g);
+    return head + speechDistance(g.at) + '先、' + speechPhrase(g);
   }
 
   // ---------- ルート外れの判定 ----------
@@ -362,7 +382,7 @@
   }
 
   var api = {
-    makeTrafficWatcher: makeTrafficWatcher,
+    makeTrafficWatcher: makeTrafficWatcher, speechPhrase: speechPhrase, currentRoad: currentRoad,
     dist: dist, bearing: bearing, angleDiff: angleDiff, projectOnSegment: projectOnSegment,
     phrase: phrase, roadLabel: roadLabel, formatDistance: formatDistance,
     speechDistance: speechDistance, formatDuration: formatDuration,

@@ -101,6 +101,22 @@
 
   function isAscii(s) { return /^[\x00-\x7F]*$/.test(s); }
 
+  // 交差点名：Valhallaは「甲府警察署前/Kofu Police Sta.を左方向です。」のように案内文に入れてくる
+  function junctionName(m) {
+    var els = m.sign && m.sign.junction_name_elements;
+    if (els && els.length) {
+      var t = els.map(function (e) { return e.text; }).filter(function (x) { return x && !isAscii(x); })[0];
+      if (t) return t;
+    }
+    if (!('sign' in m) || !m.instruction) return '';
+    var r = m.instruction.match(/^(.+?)を(左|右|斜め|大きく|Uターン|直進)/);
+    if (!r) return '';
+    var name = r[1].split('/')[0].trim();
+    if (!name || isAscii(name) || /方向|です/.test(name)) return '';
+    var streets = (m.street_names || []).concat(m.begin_street_names || []);
+    return streets.indexOf(name) >= 0 ? '' : name;
+  }
+
   function fromValhalla(j, o) {
     var leg = j.trip.legs[0];
     var coords = decodePolyline(leg.shape, 6);
@@ -120,6 +136,8 @@
       };
       if (ref) st.ref = ref;
       if (dest) st.destinations = dest;
+      var jn = junctionName(m);
+      if (jn) st.junction = jn;
       if (mm[0] === 'roundabout') st.maneuver.exit = m.roundabout_exit_count || 1;
       return st;
     });
